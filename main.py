@@ -99,28 +99,25 @@ api = FastAPI()
 async def health_check():
     return {"status": "healthy"}
 
-# Run polling in a separate thread with its own event loop
-def run_polling():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# Run both polling and FastAPI in the main event loop
+async def run_application():
+    global application
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    loop.run_until_complete(application.run_polling())
-    loop.close()
+    # Run polling and FastAPI concurrently
+    await asyncio.gather(
+        application.run_polling(),
+        uvicorn.Server(uvicorn.Config(app=api, host="0.0.0.0", port=PORT, log_level="info")).serve()
+    )
 
 # Initialize and run the bot with health check
 def main():
     init_db()  # Set up the database table
-    import threading
-    polling_thread = threading.Thread(target=run_polling, daemon=True)
-    polling_thread.start()
-
-    # Run FastAPI for health check
-    uvicorn.run(api, host="0.0.0.0", port=PORT, log_level="info", workers=1)
+    asyncio.run(run_application())
 
 if __name__ == "__main__":
     missing = []
