@@ -86,17 +86,28 @@ def init_db():
             """)
             conn.commit()
 
-# Memory utilities with database
-def ensure_user(uid: int, referrer_id: Optional[int] = None):
+# User management functions
+def ensure_user(uid: int, referrer_id: Optional[int] = None, balance: float = 0.0, verified: bool = False,
+               first_package_activated: bool = False, withdraw_state: str = None,
+               deposit_address: str = None, withdraw_address: str = None):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             try:
                 cur.execute("""
-                    INSERT INTO users (user_id, referrer_id)
-                    VALUES (%s, %s)
-                    ON CONFLICT (user_id) DO UPDATE SET referrer_id = EXCLUDED.referrer_id
-                    WHERE users.referrer_id IS NULL
-                """, (uid, referrer_id))
+                    INSERT INTO users (user_id, referrer_id, balance, verified, first_package_activated,
+                                      withdraw_state, deposit_address, withdraw_address, packages)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET referrer_id = EXCLUDED.referrer_id,
+                        balance = EXCLUDED.balance,
+                        verified = EXCLUDED.verified,
+                        first_package_activated = EXCLUDED.first_package_activated,
+                        withdraw_state = EXCLUDED.withdraw_state,
+                        deposit_address = EXCLUDED.deposit_address,
+                        withdraw_address = EXCLUDED.withdraw_address,
+                        packages = EXCLUDED.packages
+                """, (uid, referrer_id, balance, verified, first_package_activated,
+                      withdraw_state, deposit_address, withdraw_address, '[]'))
                 conn.commit()
             except psycopg2.Error as e:
                 logger.error(f"Database error in ensure_user for uid {uid}: {str(e)}")
@@ -108,9 +119,15 @@ def get_user(uid: int) -> Dict[str, Any]:
             cur.execute("SELECT * FROM users WHERE user_id = %s", (uid,))
             user = cur.fetchone()
             if not user:
-                ensure_user(uid)
-                return {"user_id": uid, "balance": 0.0, "verified": False, "referrer_id": referrer_id, "packages": [], "first_package_activated": False, "withdraw_state": None, "deposit_address": None, "withdraw_address": None}
-            return dict(user)
+                ensure_user(uid)  # Creates user with default values
+                return {"user_id": uid, "balance": 0.0, "verified": False, "referrer_id": None,
+                        "packages": [], "first_package_activated": False, "withdraw_state": None,
+                        "deposit_address": None, "withdraw_address": None}
+            # Convert packages from JSONB to list if needed
+            user_dict = dict(user)
+            if user_dict.get('packages'):
+                user_dict['packages'] = json.loads(user_dict['packages']) if isinstance(user_dict['packages'], str) else user_dict['packages']
+            return user_dict
 
 def add_balance(uid: int, amount: float):
     with get_db_connection() as conn:
@@ -228,6 +245,7 @@ async def ipn_nowpayments(request: Request, x_nowpayments_sig: str = Header(None
             if not cur.fetchone() and status in {"finished", "confirmed"} and order_id and credited > 0:
                 try:
                     tg_id = int(str(order_id).split("-")[0])
+                    ensure_user(tg_id)  # Ensure user exists
                     add_balance(tg_id, credited)
                     await app.bot.send_message(chat_id=tg_id, text=f"{credited} USDT Deposit Successfully")
                     cur.execute("INSERT INTO processed_orders (order_id) VALUES (%s)", (order_id,))
@@ -243,7 +261,7 @@ async def ipn_nowpayments(request: Request, x_nowpayments_sig: str = Header(None
 async def telegram_webhook(request: Request):
     update = await request.json()
     await app.process_update(Update.de_json(update, app.bot))
-    return {"ok": True}
+    return {"ok": True"}
 
 @api.get("/set-webhook")
 async def set_webhook():
@@ -273,16 +291,14 @@ WELCOME_TEXT = (
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     referrer = None
-    if context.args:
-        arg = context.args[0]
-        if arg.startswith("ref"):
-            try:
-                referrer = int(arg[3:])
-                if referrer == update.effective_user.id:
-                    referrer = None
-            except Exception:
+    if context.args and context.args[0].startswith("ref"):
+        try:
+            referrer = int(context.args[0][3:])
+            if referrer == uid:
                 referrer = None
-    ensure_user(uid, referrer)
+        except Exception:
+            referrer = None
+    ensure_user(uid, referrer)  # Saves with defaults
     kb = [[InlineKeyboardButton("📢 Telegram Channel", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}")]]
     await update.message.reply_text(WELCOME_TEXT, reply_markup=InlineKeyboardMarkup(kb))
 
@@ -424,8 +440,8 @@ async def cmd_my_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM users WHERE referrer_id = %s AND first_package_activated = TRUE", (uid,))
-            count = cur.rowcount
+            cur.execute("SELECT COUNT(*) FROM users WHERE referrer_id = %s AND first_package_activated = TRUE", (uid,))
+            count = cur.fetchone()[0]
     await update.message.reply_text(f"Your qualified friends are {count}")
 
 async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
