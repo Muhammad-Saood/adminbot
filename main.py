@@ -101,6 +101,7 @@ async def health_check():
 
 # Background task to run Telegram bot polling
 async def run_bot(application):
+    print("Bot polling started")  # Debug log
     await application.initialize()
     await application.updater.start_polling()
     # Keep the task alive
@@ -124,8 +125,9 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    # Start the bot as a background task
-    loop = asyncio.get_event_loop()
+    # Use a new event loop to avoid deprecation warning
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.create_task(run_bot(application))
 
     # Start the FastAPI server
