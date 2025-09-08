@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, HTTPException
 import uvicorn
+import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -14,7 +15,7 @@ DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
-PORT = int(os.getenv("PORT", "8080"))  # Default to 8080, adjustable via env var
+PORT = int(os.getenv("PORT", "8000"))  # Match Koyeb's expected port
 
 # Set up logging
 print = lambda *args, **kwargs: None  # Disable print for simplicity
@@ -98,21 +99,23 @@ api = FastAPI()
 async def health_check():
     return {"status": "healthy"}
 
-# Initialize and run the bot with health check
-def main():
-    init_db()  # Set up the database table
-    global application
+# Run polling in a separate thread with its own event loop
+def run_polling():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    # Start polling in a separate thread
-    import threading
-    def run_polling():
-        application.run_polling()
+    loop.run_until_complete(application.run_polling())
+    loop.close()
 
+# Initialize and run the bot with health check
+def main():
+    init_db()  # Set up the database table
+    import threading
     polling_thread = threading.Thread(target=run_polling, daemon=True)
     polling_thread.start()
 
