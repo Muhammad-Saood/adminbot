@@ -68,7 +68,7 @@ def update_points(uid: int, points: int):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     ensure_user(uid, 10)
-    await update.message.reply_text(f"Welcome! You’ve been given 10 points. Use /quest to earn more and /total to check your balance.")
+    await update.message.reply_text(f"Welcome! You’ve ben given 10 points. Use /quest to earn more and /total to check your balance.")
 
 async def quest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
