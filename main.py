@@ -65,10 +65,10 @@ def init_db():
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
+                    user_id BIGINT PRIMARY KEY,
                     balance NUMERIC(15, 8) DEFAULT 0.0,
                     verified BOOLEAN DEFAULT FALSE,
-                    referrer_id INTEGER,
+                    referrer_id BIGINT,
                     packages JSONB,
                     first_package_activated BOOLEAN DEFAULT FALSE,
                     withdraw_state TEXT,
