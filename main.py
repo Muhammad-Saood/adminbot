@@ -2,17 +2,19 @@ import os
 import psycopg2
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from fastapi import FastAPI, HTTPException
+import uvicorn
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-PORT = int(os.getenv("PORT", "8080"))
 DATABASE_HOST = os.getenv("DATABASE_HOST")
 DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
+PORT = int(os.getenv("PORT", "8080"))  # Default to 8080, adjustable via env var
 
 # Set up logging
 print = lambda *args, **kwargs: None  # Disable print for simplicity
@@ -27,24 +29,34 @@ def get_db_connection():
         password=DATABASE_PASSWORD
     )
 
-# Initialize database table
+# Initialize database table with error handling
 def init_db():
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    points INTEGER DEFAULT 0
-                )
-            """)
-            conn.commit()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id BIGINT PRIMARY KEY,
+                        points INTEGER DEFAULT 0
+                    )
+                """)
+                # Ensure points column exists
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0")
+                conn.commit()
+    except psycopg2.Error as e:
+        print(f"Database initialization error: {e}")  # Log to Koyeb logs
+        raise
 
 # User data functions
 def ensure_user(uid: int, points: int = 0):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO users (user_id, points) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET points = %s", (uid, points, points))
-            conn.commit()
+            try:
+                cur.execute("INSERT INTO users (user_id, points) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET points = %s", (uid, points, points))
+                conn.commit()
+            except psycopg2.Error as e:
+                print(f"Error in ensure_user for uid {uid}: {e}")  # Log to Koyeb logs
+                raise
 
 def get_user_points(uid: int) -> int:
     with get_db_connection() as conn:
@@ -79,20 +91,37 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     points = get_user_points(uid)
     await update.message.reply_text(f"Your total points: {points}")
 
-# Initialize and run the bot
+# FastAPI setup for health check
+api = FastAPI()
+
+@api.get("/")
+async def health_check():
+    return {"status": "healthy"}
+
+# Initialize and run the bot with health check
 def main():
     init_db()  # Set up the database table
+    global application
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    application.run_polling()
+    # Start polling in a separate thread
+    import threading
+    def run_polling():
+        application.run_polling()
+
+    polling_thread = threading.Thread(target=run_polling, daemon=True)
+    polling_thread.start()
+
+    # Run FastAPI for health check
+    uvicorn.run(api, host="0.0.0.0", port=PORT, log_level="info", workers=1)
 
 if __name__ == "__main__":
     missing = []
-    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD"]:
+    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT"]:
         if not globals().get(name):
             missing.append(name)
     if missing:
