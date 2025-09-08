@@ -2,7 +2,7 @@ import os
 import psycopg2
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 import uvicorn
 import asyncio
 from dotenv import load_dotenv
@@ -93,14 +93,14 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Your total points: {points}")
 
 # FastAPI setup for health check
-api = FastAPI()
+app = FastAPI()
 
-@api.get("/")
+@app.get("/")
 async def health_check():
     return {"status": "healthy"}
 
-# Run both polling and FastAPI in the main event loop
-async def run_application():
+# Background task to run Telegram bot polling
+async def run_bot():
     global application
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -108,22 +108,24 @@ async def run_application():
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    # Run polling and FastAPI concurrently
-    await asyncio.gather(
-        application.run_polling(),
-        uvicorn.Server(uvicorn.Config(app=api, host="0.0.0.0", port=PORT, log_level="info")).serve()
-    )
+    await application.initialize()
+    await application.run_polling()
 
-# Initialize and run the bot with health check
-def main():
-    init_db()  # Set up the database table
-    asyncio.run(run_application())
-
+# Uvicorn configuration and startup
 if __name__ == "__main__":
+    init_db()  # Set up the database table
     missing = []
     for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT"]:
         if not globals().get(name):
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required config values: {', '.join(missing)}")
-    main()
+
+    # Run the bot as a background task with FastAPI
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_bot())
+
+    # Start the FastAPI server
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=PORT, log_level="info")
+    server = uvicorn.Server(config)
+    loop.run_until_complete(server.serve())
