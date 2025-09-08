@@ -17,9 +17,6 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))  # Match Koyeb's expected port
 
-# Set up logging
-print = lambda *args, **kwargs: None  # Disable print for simplicity
-
 # Database connection
 def get_db_connection():
     return psycopg2.connect(
@@ -45,19 +42,14 @@ def init_db():
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0")
                 conn.commit()
     except psycopg2.Error as e:
-        print(f"Database initialization error: {e}")  # Log to Koyeb logs
         raise
 
 # User data functions
 def ensure_user(uid: int, points: int = 0):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            try:
-                cur.execute("INSERT INTO users (user_id, points) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET points = %s", (uid, points, points))
-                conn.commit()
-            except psycopg2.Error as e:
-                print(f"Error in ensure_user for uid {uid}: {e}")  # Log to Koyeb logs
-                raise
+            cur.execute("INSERT INTO users (user_id, points) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET points = %s", (uid, points, points))
+            conn.commit()
 
 def get_user_points(uid: int) -> int:
     with get_db_connection() as conn:
@@ -101,7 +93,6 @@ async def health_check():
 
 # Background task to run Telegram bot polling
 async def run_bot(application):
-    print("Bot polling started")  # Debug log
     await application.initialize()
     await application.updater.start_polling()
     # Keep the task alive
@@ -125,7 +116,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
 
-    # Use a new event loop to avoid deprecation warning
+    # Use a new event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(run_bot(application))
