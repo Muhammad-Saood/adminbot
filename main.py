@@ -16,6 +16,7 @@ DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))  # Match Koyeb's expected port
+INSTANCE_ID = os.getenv("INSTANCE_ID", os.urandom(8).hex())  # Unique ID per instance
 
 # Database connection
 def get_db_connection():
@@ -93,6 +94,10 @@ async def health_check():
 
 # Background task to run Telegram bot polling
 async def run_bot(application):
+    # Only allow polling if this is the primary instance (e.g., first to start)
+    if os.getenv("PRIMARY_INSTANCE", "false").lower() != "true":
+        print(f"Instance {INSTANCE_ID} skipping polling (not primary)")
+        return
     await application.initialize()
     await application.updater.start_polling()
     # Keep the task alive
