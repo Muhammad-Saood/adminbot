@@ -1,55 +1,20 @@
 import os
-import json
-import time
-import hmac
-import hashlib
-import datetime as dt
-from typing import Optional, Dict, Any, List
-import requests
-import asyncio
-import logging
-import threading
 import psycopg2
-from psycopg2.extras import RealDictCursor
-
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler
-from telegram.ext import filters
-from fastapi import FastAPI, Request, Header, HTTPException
-import uvicorn
-from pydantic import BaseModel
-from typing import Union
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 
-# Load .env file for local testing (ignored on Koyeb)
+# Load environment variables
 load_dotenv()
-
-# ----------------- CONFIG & LOGGING -----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-NOWPAY_API_KEY = os.getenv("NOWPAY_API_KEY")
-NOWPAY_IPN_SECRET = os.getenv("NOWPAY_IPN_SECRET")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@InfinityEarn2x")
-BASE_URL = os.getenv("BASE_URL")  # Can be None initially
-PORT = int(os.getenv("PORT", "8000"))
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 DATABASE_HOST = os.getenv("DATABASE_HOST")
-DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))  # Default PostgreSQL port
+DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize application globally
-app = Application.builder().token(BOT_TOKEN).build()
-
-NOWPAY_API = "https://api.nowpayments.io/v1"
-USDT_BSC_CODE = "USDTBSC"
-PACKAGES = {10: 0.33, 20: 0.66, 50: 1.66, 100: 3.33, 200: 6.66, 500: 16.66, 1000: 33.33}
-PACKAGE_DAYS = 60
-MIN_WITHDRAWAL = 1.5  # Minimum withdrawal amount
+print = lambda *args, **kwargs: None  # Disable print for simplicity
 
 # Database connection
 def get_db_connection():
@@ -58,527 +23,77 @@ def get_db_connection():
         port=DATABASE_PORT,
         dbname=DATABASE_NAME,
         user=DATABASE_USER,
-        password=DATABASE_PASSWORD,
-        cursor_factory=RealDictCursor
+        password=DATABASE_PASSWORD
     )
 
-# Initialize database tables
+# Initialize database table
 def init_db():
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
-                    balance NUMERIC(15, 8) DEFAULT 0.0,
-                    verified BOOLEAN DEFAULT FALSE,
-                    referrer_id BIGINT,
-                    packages JSONB,
-                    first_package_activated BOOLEAN DEFAULT FALSE,
-                    withdraw_state TEXT,
-                    deposit_address TEXT,
-                    withdraw_address TEXT
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS processed_orders (
-                    order_id TEXT PRIMARY KEY
+                    points INTEGER DEFAULT 0
                 )
             """)
             conn.commit()
 
-# User management functions
-def ensure_user(uid: int, referrer_id: Optional[int] = None, balance: float = 0.0, verified: bool = False,
-               first_package_activated: bool = False, withdraw_state: str = None,
-               deposit_address: str = None, withdraw_address: str = None):
+# User data functions
+def ensure_user(uid: int, points: int = 0):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            try:
-                cur.execute("""
-                    INSERT INTO users (user_id, referrer_id, balance, verified, first_package_activated,
-                                      withdraw_state, deposit_address, withdraw_address, packages)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET referrer_id = EXCLUDED.referrer_id,
-                        balance = EXCLUDED.balance,
-                        verified = EXCLUDED.verified,
-                        first_package_activated = EXCLUDED.first_package_activated,
-                        withdraw_state = EXCLUDED.withdraw_state,
-                        deposit_address = EXCLUDED.deposit_address,
-                        withdraw_address = EXCLUDED.withdraw_address,
-                        packages = EXCLUDED.packages
-                """, (uid, referrer_id, balance, verified, first_package_activated,
-                      withdraw_state, deposit_address, withdraw_address, '[]'))
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"Database error in ensure_user for uid {uid}: {str(e)}")
-                raise
-
-def get_user(uid: int) -> Dict[str, Any]:
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE user_id = %s", (uid,))
-            user = cur.fetchone()
-            if not user:
-                ensure_user(uid)  # Creates user with default values
-                return {"user_id": uid, "balance": 0.0, "verified": False, "referrer_id": None,
-                        "packages": [], "first_package_activated": False, "withdraw_state": None,
-                        "deposit_address": None, "withdraw_address": None}
-            # Convert packages from JSONB to list if needed
-            user_dict = dict(user)
-            if user_dict.get('packages'):
-                user_dict['packages'] = json.loads(user_dict['packages']) if isinstance(user_dict['packages'], str) else user_dict['packages']
-            return user_dict
-
-def add_balance(uid: int, amount: float):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE users SET balance = balance + %s WHERE user_id = %s
-            """, (amount, uid))
+            cur.execute("INSERT INTO users (user_id, points) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET points = %s", (uid, points, points))
             conn.commit()
 
-def deduct_balance(uid: int, amount: float) -> bool:
+def get_user_points(uid: int) -> int:
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT balance FROM users WHERE user_id = %s", (uid,))
+            cur.execute("SELECT points FROM users WHERE user_id = %s", (uid,))
             result = cur.fetchone()
-            if not result or result['balance'] + 1e-9 < amount:
-                return False
-            cur.execute("""
-                UPDATE users SET balance = balance - %s WHERE user_id = %s
-            """, (amount, uid))
-            conn.commit()
-            return True
+            return result[0] if result else 0
 
-def append_package(uid: int, pack: Dict[str, Any]):
+def update_points(uid: int, points: int):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT packages FROM users WHERE user_id = %s", (uid,))
-            result = cur.fetchone()
-            packages = result['packages'] if result and result['packages'] else []
-            packages.append(pack)
-            cur.execute("""
-                UPDATE users SET packages = %s WHERE user_id = %s
-            """, (json.dumps(packages), uid))
+            cur.execute("UPDATE users SET points = points + %s WHERE user_id = %s", (points, uid))
             conn.commit()
 
-def active_packages(user: Dict[str, Any]) -> List[Dict[str, Any]]:
-    now = dt.datetime.now(dt.UTC)
-    packages = user.get('packages', [])
-    return [p for p in packages if dt.datetime.fromtimestamp(p["end_ts"], dt.UTC) > now]
-
-def get_qualified_friends(uid: int) -> int:
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM users WHERE referrer_id = %s AND first_package_activated = TRUE", (uid,))
-            return cur.fetchone()[0]
-
-# NOWPAYMENTS
-def get_min_amount():
-    url = f"{NOWPAY_API}/min-amount"
-    headers = {"x-api-key": NOWPAY_API_KEY}
-    params = {"currency_from": USDT_BSC_CODE, "currency_to": USDT_BSC_CODE}
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
-        resp.raise_for_status()
-        return float(resp.json().get('min_amount', 5.0))
-    except Exception:
-        return 5.0
-
-def nowpayments_create_payment(user_id: int) -> Dict[str, Any]:
-    if not BASE_URL:
-        raise ValueError("BASE_URL not set for payment creation")
-    url = f"{NOWPAY_API}/payment"
-    headers = {"x-api-key": NOWPAY_API_KEY, "Content-Type": "application/json"}
-    min_amt = get_min_amount()
-    payload = {
-        "price_amount": min_amt,
-        "price_currency": USDT_BSC_CODE,
-        "pay_currency": USDT_BSC_CODE,
-        "order_id": f"{user_id}-{int(time.time())}",
-        "ipn_callback_url": f"{BASE_URL}/ipn/nowpayments"
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        logger.info(f"Created payment for user {user_id} with order_id {payload['order_id']}")
-        return resp.json()
-    except Exception as e:
-        logger.error(f"Error creating payment for user {user_id}: {str(e)}")
-        raise
-
-def verify_nowpay_signature(raw_body: bytes, signature: str) -> bool:
-    try:
-        body = json.loads(raw_body.decode("utf-8"))
-        sorted_body = json.dumps(body, separators=(",", ":"), sort_keys=True)
-        digest = hmac.new(NOWPAY_IPN_SECRET.encode("utf-8"), sorted_body.encode("utf-8"), hashlib.sha512).hexdigest()
-        return digest == signature
-    except Exception:
-        return False
-
-# FASTAPI ENDPOINTS
-api = FastAPI()
-
-@api.get("/")
-def root():
-    return {"ok": True}
-
-class NowPaymentsIPN(BaseModel):
-    payment_status: str
-    actually_paid: Union[str, float, int]
-    pay_amount: Union[str, float]
-    order_id: str
-
-@api.post("/ipn/nowpayments")
-async def ipn_nowpayments(request: Request, x_nowpayments_sig: str = Header(None)):
-    raw = await request.body()
-    if not x_nowpayments_sig or not verify_nowpay_signature(raw, x_nowpayments_sig):
-        raise HTTPException(status_code=400, detail="Bad signature")
-    data = NowPaymentsIPN(**json.loads(raw.decode("utf-8")))
-    status = (data.payment_status or "").lower()
-    credited = float(data.actually_paid or data.pay_amount or 0.0)
-    order_id = data.order_id
-    logger.info(f"Received IPN for order_id {order_id}, status {status}, credited {credited}")
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT order_id FROM processed_orders WHERE order_id = %s", (order_id,))
-            if not cur.fetchone() and status in {"finished", "confirmed"} and order_id and credited > 0:
-                try:
-                    tg_id = int(str(order_id).split("-")[0])
-                    ensure_user(tg_id)  # Ensure user exists
-                    add_balance(tg_id, credited)
-                    await app.bot.send_message(chat_id=tg_id, text=f"{credited} USDT Deposit Successfully")
-                    cur.execute("INSERT INTO processed_orders (order_id) VALUES (%s)", (order_id,))
-                    conn.commit()
-                    logger.info(f"Processed payment for order_id {order_id}, credited {credited} to user {tg_id}")
-                except Exception as e:
-                    logger.error(f"Error processing payment for order_id {order_id}: {e}")
-            else:
-                logger.info(f"Duplicate payment notification for order_id {order_id} ignored")
-    return {"ok": True}
-
-@api.post("/telegram/webhook")
-async def telegram_webhook(request: Request):
-    update = await request.json()
-    await app.process_update(Update.de_json(update, app.bot))
-    return {"ok": True}
-
-@api.get("/set-webhook")
-async def set_webhook():
-    if not BASE_URL:
-        raise HTTPException(status_code=400, detail="BASE_URL not set in environment variables")
-    webhook_url = f"{BASE_URL}/telegram/webhook"
-    try:
-        await app.bot.set_webhook(webhook_url)
-        return {"status": "Webhook set successfully", "webhook_url": webhook_url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to set webhook: {str(e)}")
-
-# TELEGRAM BOT HANDLERS
-WELCOME_TEXT = (
-    'Welcome to "Infinity Earn 2x" platform where you can:\n\n'
-    '👉 Invest 10 USDT and earn 0.33 USDT daily for 60 days.\n'
-    '👉 Invest 20 USDT and earn 0.66 USDT daily for 60 days.\n'
-    '👉 Invest 50 USDT and earn 1.66 USDT daily for 60 days.\n'
-    '👉 Invest 100 USDT and earn 3.33 USDT daily for 60 days.\n'
-    '👉 Invest 200 USDT and earn 6.66 USDT daily for 60 days.\n'
-    '👉 Invest 500 USDT and earn 16.66 USDT daily for 60 days.\n'
-    '👉 Invest 1000 USDT and earn 33.33 USDT daily for 60 days.\n\n'
-    '🎁 You can also get 10% bonus on first deposit of your friend if your friend joined by your referral link.\n\n'
-    'Deposit your balance, select your package by sending commands from the menu, and start your earning journey. You can also select multiple packages one by one to boost your earning.'
-)
-
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Bot commands
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    referrer = None
-    if context.args and context.args[0].startswith("ref"):
-        try:
-            referrer = int(context.args[0][3:])
-            if referrer == uid:
-                referrer = None
-        except Exception:
-            referrer = None
-    ensure_user(uid, referrer)  # Saves with defaults
-    kb = [[InlineKeyboardButton("📢 Telegram Channel", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}")]]
-    await update.message.reply_text(WELCOME_TEXT, reply_markup=InlineKeyboardMarkup(kb))
+    ensure_user(uid, 10)  # Give 10 points on start
+    await update.message.reply_text(f"Welcome! You’ve been given 10 points. Use /quest to earn more and /total to check your balance.")
 
-async def cmd_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def quest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    user = get_user(uid)
-    if not BASE_URL or not NOWPAY_API_KEY:
-        await update.message.reply_text("Service not configured. Contact admin.")
-        return
-    if not user.get("deposit_address"):
-        try:
-            pay = nowpayments_create_payment(uid)
-            pay_address = pay.get("pay_address") or pay.get("wallet_address") or pay.get("payment_address")
-            if not pay_address:
-                inv = pay.get("invoice_url") or pay.get("payment_url") or pay.get("url")
-                if inv:
-                    await update.message.reply_text(f"{inv}\n\n(Open and pay on BSC/USDT)")
-                    return
-                await update.message.reply_text("Could not get deposit address. Try again later.")
-                return
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE users SET deposit_address = %s WHERE user_id = %s", (pay_address, uid))
-                    conn.commit()
-            await update.message.reply_text(f"Your receiving address of USDT on BSC (Binance Smart Chain) is given below 👇:")
-            await update.message.reply_text(f" {pay_address}")
-        except Exception as e:
-            await update.message.reply_text(f"Error creating deposit address: {str(e)}")
+    user_input = " ".join(context.args).strip() if context.args else ""
+    if user_input == "4+5=" or user_input == "9":
+        update_points(uid, 5)
+        await update.message.reply_text("Quest completed! You earned 5 points.")
     else:
-        await update.message.reply_text(f"Your receiving address of USDT on BSC (Binance Smart Chain) is given below 👇:")
-        await update.message.reply_text(f" {user['deposit_address']}")
+        await update.message.reply_text("Try the quest: What is 4+5=? Send /quest 9 to answer.")
 
-def packages_keyboard():
-    rows = [
-        [InlineKeyboardButton("10 USDT", callback_data="pkg:10"),
-         InlineKeyboardButton("20 USDT", callback_data="pkg:20"),
-         InlineKeyboardButton("50 USDT", callback_data="pkg:50")],
-        [InlineKeyboardButton("100 USDT", callback_data="pkg:100"),
-         InlineKeyboardButton("200 USDT", callback_data="pkg:200"),
-         InlineKeyboardButton("500 USDT", callback_data="pkg:500")],
-        [InlineKeyboardButton("1000 USDT", callback_data="pkg:1000")]
-    ]
-    return InlineKeyboardMarkup(rows)
-
-async def cmd_packages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Select a package:", reply_markup=packages_keyboard())
-
-async def cb_package(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
-    user = get_user(uid)
-    price = int(q.data.split(":")[1])
-    if price not in PACKAGES:
-        await q.edit_message_text("Invalid package.")
-        return
-    if user.get("balance", 0.0) + 1e-9 < price:
-        await q.edit_message_text("Insufficient balance for selected package")
-        return
-    if not deduct_balance(uid, float(price)):
-        await q.edit_message_text("Insufficient balance for selected package")
-        return
-    daily = PACKAGES[price]
-    now = dt.datetime.now(dt.UTC)
-    end = now + dt.timedelta(days=PACKAGE_DAYS)
-    pack = {
-        "name": f"{price} USDT",
-        "price": float(price),
-        "daily": float(daily),
-        "start_ts": int(now.timestamp()),
-        "end_ts": int(end.timestamp()),
-        "last_claim_date": None
-    }
-    append_package(uid, pack)
-    if not user.get("first_package_activated"):
-        refid = user.get("referrer_id")
-        if refid:
-            bonus = round(price * 0.10, 8)
-            add_balance(refid, bonus)
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE users SET first_package_activated = TRUE WHERE user_id = %s", (uid,))
-                conn.commit()
-    await q.edit_message_text(f"Your {price} USDT package has been activated for {PACKAGE_DAYS} days.")
-
-async def cmd_daily_reward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    user = get_user(uid)
-    packs = active_packages(user)
-    if not packs:
-        await update.message.reply_text("No active packages.")
-        return
-    today = dt.datetime.now(dt.UTC).date().isoformat()
-    total = 0.0
-    changed = False
-    for p in packs:
-        if p.get("last_claim_date") == today:
-            continue
-        total += float(p["daily"])
-        p["last_claim_date"] = today
-        changed = True
-    if total <= 0:
-        await update.message.reply_text("You already claimed today.")
-        return
-    if changed:
-        add_balance(uid, round(total, 8))
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE users SET packages = %s WHERE user_id = %s", (json.dumps(user['packages']), uid))
-                conn.commit()
-    await update.message.reply_text(f"Daily reward added: {round(total,8)} USDT")
+    points = get_user_points(uid)
+    await update.message.reply_text(f"Your total points: {points}")
 
-async def cmd_my_packages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    user = get_user(uid)
-    packs = active_packages(user)
-    names = [p["name"] for p in packs]
-    if not names:
-        await update.message.reply_text("You have no active packages.")
-        return
-    if len(names) == 1:
-        await update.message.reply_text(f"Your package is {names[0]}")
-    else:
-        await update.message.reply_text(f"Your packages are {', '.join(names)}")
+# Initialize and run the bot
+def main():
+    init_db()  # Set up the database table
+    application = Application.builder().token(BOT_TOKEN).build()
 
-async def cmd_my_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    user = get_user(uid)
-    bal = round(user.get("balance", 0.0), 8)
-    await update.message.reply_text(f"Your current balance is {bal} USDT")
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("quest", quest))
+    application.add_handler(CommandHandler("total", total))
 
-async def cmd_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    bot_info = await context.bot.get_me()
-    link = f"https://t.me/{bot_info.username}?start=ref{uid}"
-    await update.message.reply_text(link)
-
-async def cmd_my_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM users WHERE referrer_id = %s AND first_package_activated = TRUE", (uid,))
-            count = cur.fetchone()[0]
-    await update.message.reply_text(f"Your qualified friends are {count}")
-
-async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    user = get_user(uid)
-    user["withdraw_state"] = "address"
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE users SET withdraw_state = %s WHERE user_id = %s", ("address", uid))
-            conn.commit()
-    await update.message.reply_text("Enter your Binance ID")
-
-async def handle_withdraw_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    user = get_user(uid)
-    message_text = update.message.text.strip()
-
-    if user.get("withdraw_state") == "address":
-        user["withdraw_state"] = "amount"
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE users SET withdraw_state = %s, withdraw_address = %s WHERE user_id = %s", ("amount", message_text, uid))
-                conn.commit()
-        await update.message.reply_text("Enter your withdrawal amount.")
-    elif user.get("withdraw_state") == "amount":
-        try:
-            amount = float(message_text)
-            if amount < MIN_WITHDRAWAL:
-                await update.message.reply_text(f"Insufficient withdrawal amount. Minimum is {MIN_WITHDRAWAL} USDT.")
-                with get_db_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE users SET withdraw_state = NULL, withdraw_address = NULL WHERE user_id = %s", (uid,))
-                        conn.commit()
-                return
-            if not deduct_balance(uid, amount):
-                await update.message.reply_text("Insufficient balance for withdrawal.")
-                with get_db_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE users SET withdraw_state = NULL, withdraw_address = NULL WHERE user_id = %s", (uid,))
-                        conn.commit()
-                return
-            qualified_friends = get_qualified_friends(uid)
-            if ADMIN_CHANNEL_ID:
-                message = f"New Withdrawal Request:\nUser ID: {uid}\nAddress: {user['withdraw_address']}\nAmount: {amount} USDT\nQualified Friends: {qualified_friends}"
-                try:
-                    await app.bot.send_message(chat_id=ADMIN_CHANNEL_ID, text=message)
-                except Exception as e:
-                    logger.error(f"Failed to send notification to admin channel: {e}")
-                    add_balance(uid, amount)
-                    await update.message.reply_text("Withdrawal request failed. Contact admin.")
-                    with get_db_connection() as conn:
-                        with conn.cursor() as cur:
-                            cur.execute("UPDATE users SET withdraw_state = NULL, withdraw_address = NULL WHERE user_id = %s", (uid,))
-                            conn.commit()
-                    return
-            await update.message.reply_text("Withdraw Successful! Your balance credited to your Binance account within 24 hours.")
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE users SET withdraw_state = NULL, withdraw_address = NULL WHERE user_id = %s", (uid,))
-                    conn.commit()
-        except ValueError:
-            await update.message.reply_text("Invalid amount. Please enter a valid number.")
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE users SET withdraw_state = %s WHERE user_id = %s", ("amount", uid))
-                    conn.commit()
-
-# SELF-PINGING TASK
-PING_INTERVAL = 240  # 4 minutes in seconds
-
-async def ping_self():
-    while True:
-        try:
-            if not BASE_URL:
-                logger.error("BASE_URL is not set, cannot ping self")
-                await asyncio.sleep(PING_INTERVAL)
-                continue
-            current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
-            logger.info(f"Pinging self at {BASE_URL} at {current_time}")
-            response = requests.get(f"{BASE_URL}/", timeout=10)
-            response.raise_for_status()
-            logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
-        except requests.exceptions.Timeout:
-            logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
-        except Exception as e:
-            logger.error(f"Self-ping failed: {str(e)} at {current_time}")
-        await asyncio.sleep(PING_INTERVAL)
-
-def start_ping_task():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(ping_self())
-
-threading.Thread(target=start_ping_task, daemon=True).start()
-
-# SETUP & RUN
-app.add_handler(CommandHandler("start", cmd_start))
-app.add_handler(CommandHandler("deposit", cmd_deposit))
-app.add_handler(CommandHandler("packages", cmd_packages))
-app.add_handler(CallbackQueryHandler(cb_package, pattern=r"^pkg:\d+$"))
-app.add_handler(CommandHandler("daily_reward", cmd_daily_reward))
-app.add_handler(CommandHandler("my_packages", cmd_my_packages))
-app.add_handler(CommandHandler("my_balance", cmd_my_balance))
-app.add_handler(CommandHandler("referral_link", cmd_referral_link))
-app.add_handler(CommandHandler("my_team", cmd_my_team))
-app.add_handler(CommandHandler("withdraw", cmd_withdraw))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_withdraw_input))
-
-async def initialize_app():
-    try:
-        init_db()  # Initialize database tables
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        await app.initialize()
-        if BASE_URL:
-            webhook_url = f"{BASE_URL}/telegram/webhook"
-            await app.bot.set_webhook(webhook_url)
-            logger.info(f"Webhook set to {webhook_url}")
-        else:
-            logger.warning("BASE_URL not set. Running FastAPI server only. Use /set-webhook to configure Telegram webhook.")
-    except Exception as e:
-        logger.error(f"Error initializing app: {e}")
-        raise
+    application.run_polling()
 
 if __name__ == "__main__":
     missing = []
-    for name in ["BOT_TOKEN", "NOWPAY_API_KEY", "NOWPAY_IPN_SECRET", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD"]:
+    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD"]:
         if not globals().get(name):
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required config values: {', '.join(missing)}")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(initialize_app())
-        uvicorn.run(api, host="0.0.0.0", port=PORT, log_level="info", workers=1)
-    finally:
-        loop.close()
+    main()
