@@ -2,7 +2,7 @@ import os
 import psycopg2
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 import uvicorn
 import asyncio
 from dotenv import load_dotenv
@@ -15,8 +15,8 @@ DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
-PORT = int(os.getenv("PORT", "8000"))  # Match Koyeb's expected port
-INSTANCE_ID = os.getenv("INSTANCE_ID", os.urandom(8).hex())  # Unique ID per instance
+PORT = int(os.getenv("PORT", "8000"))
+BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.koyeb.app
 
 # Database connection
 def get_db_connection():
@@ -39,7 +39,6 @@ def init_db():
                         points INTEGER DEFAULT 0
                     )
                 """)
-                # Ensure points column exists
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0")
                 conn.commit()
     except psycopg2.Error as e:
@@ -68,7 +67,7 @@ def update_points(uid: int, points: int):
 # Bot commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    ensure_user(uid, 10)  # Give 10 points on start
+    ensure_user(uid, 10)
     await update.message.reply_text(f"Welcome! You’ve been given 10 points. Use /quest to earn more and /total to check your balance.")
 
 async def quest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,48 +84,45 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     points = get_user_points(uid)
     await update.message.reply_text(f"Your total points: {points}")
 
-# FastAPI setup for health check
+# FastAPI setup for health check and webhook
 app = FastAPI()
 
 @app.get("/")
 async def health_check():
     return {"status": "healthy"}
 
-# Background task to run Telegram bot polling
-async def run_bot(application):
-    # Only allow polling if this is the primary instance (e.g., first to start)
-    if os.getenv("PRIMARY_INSTANCE", "false").lower() != "true":
-        print(f"Instance {INSTANCE_ID} skipping polling (not primary)")
-        return
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    global application
+    update = Update.de_json(await request.json(), application.bot)
+    await application.process_update(update)
+    return {"ok": True}
+
+# Initialize and run the application
+async def start_application():
+    global application
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("quest", quest))
+    application.add_handler(CommandHandler("total", total))
     await application.initialize()
-    await application.updater.start_polling()
-    # Keep the task alive
-    while True:
-        await asyncio.sleep(10)  # Prevent task from exiting
+    if BASE_URL:
+        await application.bot.set_webhook(url=f"{BASE_URL}/telegram/webhook")
 
 # Uvicorn configuration and startup
 if __name__ == "__main__":
-    init_db()  # Set up the database table
+    init_db()
     missing = []
-    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT"]:
+    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT", "BASE_URL"]:
         if not globals().get(name):
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required config values: {', '.join(missing)}")
 
-    # Create and configure the application
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("quest", quest))
-    application.add_handler(CommandHandler("total", total))
-
-    # Use a new event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.create_task(run_bot(application))
+    loop.run_until_complete(start_application())
 
-    # Start the FastAPI server
     config = uvicorn.Config(app=app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
     loop.run_until_complete(server.serve())
