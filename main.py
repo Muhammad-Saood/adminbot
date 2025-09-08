@@ -100,16 +100,12 @@ async def health_check():
     return {"status": "healthy"}
 
 # Background task to run Telegram bot polling
-async def run_bot():
-    global application
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("quest", quest))
-    application.add_handler(CommandHandler("total", total))
-
+async def run_bot(application):
     await application.initialize()
-    await application.run_polling()
+    await application.updater.start_polling()
+    # Keep the task alive
+    while True:
+        await asyncio.sleep(10)  # Prevent task from exiting
 
 # Uvicorn configuration and startup
 if __name__ == "__main__":
@@ -121,9 +117,16 @@ if __name__ == "__main__":
     if missing:
         raise RuntimeError(f"Missing required config values: {', '.join(missing)}")
 
-    # Run the bot as a background task with FastAPI
+    # Create and configure the application
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("quest", quest))
+    application.add_handler(CommandHandler("total", total))
+
+    # Start the bot as a background task
     loop = asyncio.get_event_loop()
-    loop.create_task(run_bot())
+    loop.create_task(run_bot(application))
 
     # Start the FastAPI server
     config = uvicorn.Config(app=app, host="0.0.0.0", port=PORT, log_level="info")
