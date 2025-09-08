@@ -42,6 +42,9 @@ DATABASE_NAME = os.getenv("DATABASE_NAME")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize application globally
+app = Application.builder().token(BOT_TOKEN).build()
+
 NOWPAY_API = "https://api.nowpayments.io/v1"
 USDT_BSC_CODE = "USDTBSC"
 PACKAGES = {10: 0.33, 20: 0.66, 50: 1.66, 100: 3.33, 200: 6.66, 500: 16.66, 1000: 33.33}
@@ -87,13 +90,17 @@ def init_db():
 def ensure_user(uid: int, referrer_id: Optional[int] = None):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO users (user_id, referrer_id)
-                VALUES (%s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET referrer_id = EXCLUDED.referrer_id
-                WHERE users.referrer_id IS NULL
-            """, (uid, referrer_id))
-            conn.commit()
+            try:
+                cur.execute("""
+                    INSERT INTO users (user_id, referrer_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET referrer_id = EXCLUDED.referrer_id
+                    WHERE users.referrer_id IS NULL
+                """, (uid, referrer_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                logger.error(f"Database error in ensure_user for uid {uid}: {str(e)}")
+                raise
 
 def get_user(uid: int) -> Dict[str, Any]:
     with get_db_connection() as conn:
@@ -142,6 +149,12 @@ def active_packages(user: Dict[str, Any]) -> List[Dict[str, Any]]:
     now = dt.datetime.now(dt.UTC)
     packages = user.get('packages', [])
     return [p for p in packages if dt.datetime.fromtimestamp(p["end_ts"], dt.UTC) > now]
+
+def get_qualified_friends(uid: int) -> int:
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM users WHERE referrer_id = %s AND first_package_activated = TRUE", (uid,))
+            return cur.fetchone()[0]
 
 # NOWPAYMENTS
 def get_min_amount():
@@ -454,7 +467,7 @@ async def handle_withdraw_input(update: Update, context: ContextTypes.DEFAULT_TY
                         cur.execute("UPDATE users SET withdraw_state = NULL, withdraw_address = NULL WHERE user_id = %s", (uid,))
                         conn.commit()
                 return
-            qualified_friends = sum(1 for u in users.values() if u.get("referrer_id") == uid and u.get("first_package_activated", False))
+            qualified_friends = get_qualified_friends(uid)
             if ADMIN_CHANNEL_ID:
                 message = f"New Withdrawal Request:\nUser ID: {uid}\nAddress: {user['withdraw_address']}\nAmount: {amount} USDT\nQualified Friends: {qualified_friends}"
                 try:
@@ -511,13 +524,12 @@ def start_ping_task():
 threading.Thread(target=start_ping_task, daemon=True).start()
 
 # SETUP & RUN
-app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", cmd_start))
 app.add_handler(CommandHandler("deposit", cmd_deposit))
 app.add_handler(CommandHandler("packages", cmd_packages))
 app.add_handler(CallbackQueryHandler(cb_package, pattern=r"^pkg:\d+$"))
 app.add_handler(CommandHandler("daily_reward", cmd_daily_reward))
-app.add_handler(CommandHandler("my_packages", cmd_my_packages))  # Fixed typo
+app.add_handler(CommandHandler("my_packages", cmd_my_packages))
 app.add_handler(CommandHandler("my_balance", cmd_my_balance))
 app.add_handler(CommandHandler("referral_link", cmd_referral_link))
 app.add_handler(CommandHandler("my_team", cmd_my_team))
