@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.getenv("PORT", "8080"))
 DATABASE_HOST = os.getenv("DATABASE_HOST")
 DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))
 DATABASE_USER = os.getenv("DATABASE_USER")
