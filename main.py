@@ -16,7 +16,7 @@ DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
-BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.koyeb.app
+BASE_URL = os.getenv("BASE_URL")  # Optional, will be set post-deployment
 
 # Database connection
 def get_db_connection():
@@ -106,14 +106,17 @@ async def start_application():
     application.add_handler(CommandHandler("quest", quest))
     application.add_handler(CommandHandler("total", total))
     await application.initialize()
+    # Set webhook only if BASE_URL is provided
     if BASE_URL:
         await application.bot.set_webhook(url=f"{BASE_URL}/telegram/webhook")
+    else:
+        print("Warning: BASE_URL not set, webhook not configured. Set it manually after deployment.")
 
 # Uvicorn configuration and startup
 if __name__ == "__main__":
     init_db()
     missing = []
-    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT", "BASE_URL"]:
+    for name in ["BOT_TOKEN", "DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD", "PORT"]:
         if not globals().get(name):
             missing.append(name)
     if missing:
