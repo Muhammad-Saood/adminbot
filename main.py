@@ -1,4 +1,3 @@
-
 import os
 import json
 import time
@@ -25,7 +24,7 @@ from dotenv import load_dotenv
 # Load .env file for local testing (ignored on Koyeb)
 load_dotenv()
 
-# ----------------- CONFIG -----------------
+# ----------------- CONFIG & LOGGING -----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NOWPAY_API_KEY = os.getenv("NOWPAY_API_KEY")
 NOWPAY_IPN_SECRET = os.getenv("NOWPAY_IPN_SECRET")
@@ -38,6 +37,10 @@ DATABASE_PORT = int(os.getenv("DATABASE_PORT", "5432"))  # Default PostgreSQL po
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 NOWPAY_API = "https://api.nowpayments.io/v1"
 USDT_BSC_CODE = "USDTBSC"
@@ -514,7 +517,7 @@ app.add_handler(CommandHandler("deposit", cmd_deposit))
 app.add_handler(CommandHandler("packages", cmd_packages))
 app.add_handler(CallbackQueryHandler(cb_package, pattern=r"^pkg:\d+$"))
 app.add_handler(CommandHandler("daily_reward", cmd_daily_reward))
-app.add_handler(CommandHandler("my_packages", my_packages))
+app.add_handler(CommandHandler("my_packages", cmd_my_packages))  # Fixed typo
 app.add_handler(CommandHandler("my_balance", cmd_my_balance))
 app.add_handler(CommandHandler("referral_link", cmd_referral_link))
 app.add_handler(CommandHandler("my_team", cmd_my_team))
@@ -551,7 +554,3 @@ if __name__ == "__main__":
         uvicorn.run(api, host="0.0.0.0", port=PORT, log_level="info", workers=1)
     finally:
         loop.close()
-
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
