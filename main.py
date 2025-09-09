@@ -17,9 +17,9 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # Optional, for webhook
-TELEGRAM_CHANNEL1 = int(os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x"))
-TELEGRAM_CHANNEL2 = int(os.getenv("TELEGRAM_CHANNEL2", "@qaidyno804"))
-WHATSAPP_LINK = int(os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example"))
+TELEGRAM_CHANNEL1 = os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x")
+TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@qaidyno804")
+WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example")
 
 # Database connection
 def get_db_connection():
