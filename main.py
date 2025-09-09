@@ -1,13 +1,13 @@
 import os
 import psycopg2
 import logging
+import aiohttp
+import asyncio
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from fastapi import FastAPI, Request
 import uvicorn
-import asyncio
-import threading
-import time
 from dotenv import load_dotenv
 
 # Configure logging
@@ -26,7 +26,10 @@ PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 TELEGRAM_CHANNEL1 = os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x")
 TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@qaidyno804")
-WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/4356765")
+WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example")
+
+# Self-pinging interval
+PING_INTERVAL = 2  # 2 seconds
 
 # Database connection
 def get_db_connection():
@@ -171,6 +174,27 @@ def increment_invites_count(uid: int):
         logger.error(f"Failed to increment invites count for {uid}: {e}")
         raise
 
+# Self-pinging task
+async def ping_self():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            if not BASE_URL:
+                logger.error("BASE_URL is not set, cannot ping self")
+                await asyncio.sleep(PING_INTERVAL)
+                continue
+            current_time = datetime.now().strftime("%H:%M:%S UTC")
+            try:
+                async with session.get(f"{BASE_URL}/", timeout=10) as response:
+                    response.raise_for_status()
+                    logger.info(f"Self-ping successful: {response.status} at {current_time}")
+            except aiohttp.ClientConnectorError:
+                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"Self-ping failed with status {e.status} for {BASE_URL} at {current_time}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
+            await asyncio.sleep(PING_INTERVAL)
+
 # Bot commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -303,7 +327,7 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to finalize verification for {uid}: {e}")
             await query.message.reply_text("Error awarding points. Please try again.")
     else:
-        await query.message.reply_text("not verified.")
+        await query.message.reply_text("Please join both Telegram channels to verify and claim 30 points.")
         logger.info(f"User {uid} failed verification: Channel1={is_member1}, Channel2={is_member2}")
 
 async def already_verified(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,40 +353,6 @@ async def telegram_webhook(request: Request):
         logger.error(f"Webhook error: {e}")
         return {"ok": False}
 
-            # ----------------- SELF-PINGING TASK -----------------
-PING_INTERVAL = 240  # 4 minutes in seconds
-
-def start_ping_task():
-    async def ping_self():
-        while True:
-            try:
-                if not BASE_URL:
-                    logger.error("BASE_URL is not set, cannot ping self")
-                    await asyncio.sleep(PING_INTERVAL)
-                    continue
-                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
-                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
-                response = requests.get(f"{BASE_URL}/", timeout=10)
-                response.raise_for_status()
-                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
-            except requests.exceptions.Timeout:
-                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
-            except requests.exceptions.ConnectionError:
-                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
-            except Exception as e:
-                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
-            await asyncio.sleep(PING_INTERVAL)
-
-    async def run_ping():
-        await ping_self()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_ping())
-
-# Start the ping task in a separate thread
-threading.Thread(target=start_ping_task, daemon=True).start()
-
 # Initialize and run the application
 async def start_application():
     global application
@@ -378,10 +368,13 @@ async def start_application():
         try:
             await application.bot.set_webhook(url=f"{BASE_URL}/telegram/webhook")
             logger.info(f"Webhook set to {BASE_URL}/telegram/webhook")
+            # Start self-ping task
+            asyncio.create_task(ping_self())
+            logger.info("Self-ping task started")
         except Exception as e:
             logger.error(f"Failed to set webhook: {e}")
     else:
-        logger.warning("BASE_URL not set, webhook not configured. Set it manually after deployment.")
+        logger.warning("BASE_URL not set, webhook and self-ping not configured. Set it manually after deployment.")
 
 # Uvicorn configuration and startup
 if __name__ == "__main__":
