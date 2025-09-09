@@ -301,7 +301,7 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to finalize verification for {uid}: {e}")
             await query.message.reply_text("Error awarding points. Please try again.")
     else:
-        await query.message.reply_text("Please join both Telegram channels to verify and claim 30 points.")
+        await query.message.reply_text("not verified.")
         logger.info(f"User {uid} failed verification: Channel1={is_member1}, Channel2={is_member2}")
 
 async def already_verified(update: Update, context: ContextTypes.DEFAULT_TYPE):
