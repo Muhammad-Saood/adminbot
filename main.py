@@ -1,11 +1,16 @@
 import os
 import psycopg2
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from fastapi import FastAPI, Request
 import uvicorn
 import asyncio
 from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -16,20 +21,24 @@ DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
-BASE_URL = os.getenv("BASE_URL")  # Optional, for webhook
+BASE_URL = os.getenv("BASE_URL")
 TELEGRAM_CHANNEL1 = os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x")
-TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@qaidyno804")
+TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@Channel2")
 WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example")
 
 # Database connection
 def get_db_connection():
-    return psycopg2.connect(
-        host=DATABASE_HOST,
-        port=DATABASE_PORT,
-        dbname=DATABASE_NAME,
-        user=DATABASE_USER,
-        password=DATABASE_PASSWORD
-    )
+    try:
+        return psycopg2.connect(
+            host=DATABASE_HOST,
+            port=DATABASE_PORT,
+            dbname=DATABASE_NAME,
+            user=DATABASE_USER,
+            password=DATABASE_PASSWORD
+        )
+    except psycopg2.Error as e:
+        logger.error(f"Database connection failed: {e}")
+        raise
 
 # Initialize database table
 def init_db():
@@ -45,10 +54,10 @@ def init_db():
                         telegram_channel1_joined BOOLEAN DEFAULT FALSE,
                         telegram_channel2_joined BOOLEAN DEFAULT FALSE,
                         whatsapp_clicked BOOLEAN DEFAULT FALSE,
-                        channels_verified BOOLEAN DEFAULT FALSE
+                        channels_verified BOOLEAN DEFAULT FALSE,
+                        invites_count INTEGER DEFAULT 0
                     )
                 """)
-                # Ensure columns exist
                 for col in [
                     ("points", "INTEGER DEFAULT 0"),
                     ("invite_code", "VARCHAR(50) UNIQUE"),
@@ -56,74 +65,108 @@ def init_db():
                     ("telegram_channel1_joined", "BOOLEAN DEFAULT FALSE"),
                     ("telegram_channel2_joined", "BOOLEAN DEFAULT FALSE"),
                     ("whatsapp_clicked", "BOOLEAN DEFAULT FALSE"),
-                    ("channels_verified", "BOOLEAN DEFAULT FALSE")
+                    ("channels_verified", "BOOLEAN DEFAULT FALSE"),
+                    ("invites_count", "INTEGER DEFAULT 0")
                 ]:
                     cur.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
                 conn.commit()
     except psycopg2.Error as e:
-        raise Exception(f"Database error: {e}")
+        logger.error(f"Database initialization failed: {e}")
+        raise
 
 # User data functions
 def ensure_user(uid: int, points: int = 0, invited_by: int = None):
     invite_code = f"INVITE_{uid}"
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO users (user_id, points, invite_code, invited_by)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (user_id) DO NOTHING
-                RETURNING points
-            """, (uid, points, invite_code, invited_by))
-            result = cur.fetchone()
-            conn.commit()
-            return result[0] if result else None
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO users (user_id, points, invite_code, invited_by)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO NOTHING
+                    RETURNING points
+                """, (uid, points, invite_code, invited_by))
+                result = cur.fetchone()
+                conn.commit()
+                if result:
+                    logger.info(f"New user {uid} added with {points} points, invited by {invited_by}")
+                return result[0] if result else None
+    except psycopg2.Error as e:
+        logger.error(f"Failed to ensure user {uid}: {e}")
+        raise
 
 def get_user_data(uid: int) -> dict:
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT points, invite_code, invited_by, telegram_channel1_joined,
-                       telegram_channel2_joined, whatsapp_clicked, channels_verified
-                FROM users WHERE user_id = %s
-            """, (uid,))
-            result = cur.fetchone()
-            return {
-                "points": result[0],
-                "invite_code": result[1],
-                "invited_by": result[2],
-                "telegram_channel1_joined": result[3],
-                "telegram_channel2_joined": result[4],
-                "whatsapp_clicked": result[5],
-                "channels_verified": result[6]
-            } if result else None
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT points, invite_code, invited_by, telegram_channel1_joined,
+                           telegram_channel2_joined, whatsapp_clicked, channels_verified, invites_count
+                    FROM users WHERE user_id = %s
+                """, (uid,))
+                result = cur.fetchone()
+                return {
+                    "points": result[0],
+                    "invite_code": result[1],
+                    "invited_by": result[2],
+                    "telegram_channel1_joined": result[3],
+                    "telegram_channel2_joined": result[4],
+                    "whatsapp_clicked": result[5],
+                    "channels_verified": result[6],
+                    "invites_count": result[7]
+                } if result else None
+    except psycopg2.Error as e:
+        logger.error(f"Failed to get user data for {uid}: {e}")
+        raise
 
 def update_points(uid: int, points: int):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE users SET points = points + %s WHERE user_id = %s", (points, uid))
-            conn.commit()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET points = points + %s WHERE user_id = %s", (points, uid))
+                conn.commit()
+                logger.info(f"Updated {points} points for user {uid}")
+    except psycopg2.Error as e:
+        logger.error(f"Failed to update points for {uid}: {e}")
+        raise
 
 def update_channel_status(uid: int, channel1: bool = None, channel2: bool = None, whatsapp: bool = None, verified: bool = None):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            updates = []
-            params = []
-            if channel1 is not None:
-                updates.append("telegram_channel1_joined = %s")
-                params.append(channel1)
-            if channel2 is not None:
-                updates.append("telegram_channel2_joined = %s")
-                params.append(channel2)
-            if whatsapp is not None:
-                updates.append("whatsapp_clicked = %s")
-                params.append(whatsapp)
-            if verified is not None:
-                updates.append("channels_verified = %s")
-                params.append(verified)
-            if updates:
-                params.append(uid)
-                cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s", params)
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                updates = []
+                params = []
+                if channel1 is not None:
+                    updates.append("telegram_channel1_joined = %s")
+                    params.append(channel1)
+                if channel2 is not None:
+                    updates.append("telegram_channel2_joined = %s")
+                    params.append(channel2)
+                if whatsapp is not None:
+                    updates.append("whatsapp_clicked = %s")
+                    params.append(whatsapp)
+                if verified is not None:
+                    updates.append("channels_verified = %s")
+                    params.append(verified)
+                if updates:
+                    params.append(uid)
+                    cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s", params)
+                    conn.commit()
+                    logger.info(f"Updated channel status for user {uid}")
+    except psycopg2.Error as e:
+        logger.error(f"Failed to update channel status for {uid}: {e}")
+        raise
+
+def increment_invites_count(uid: int):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET invites_count = invites_count + 1 WHERE user_id = %s", (uid,))
                 conn.commit()
+                logger.info(f"Incremented invites count for user {uid}")
+    except psycopg2.Error as e:
+        logger.error(f"Failed to increment invites count for {uid}: {e}")
+        raise
 
 # Bot commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -134,6 +177,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             invited_by = int(args[0].split("_")[1])
         except (IndexError, ValueError):
+            logger.warning(f"Invalid invite code for user {uid}: {args}")
             pass
 
     # Check if new user
@@ -143,12 +187,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Award invite points to referrer if applicable
     if invited_by and points is not None:  # New user
         update_points(invited_by, 10)
+        increment_invites_count(invited_by)
+        logger.info(f"Awarded 10 points to referrer {invited_by} for user {uid}")
 
     # Prepare channel join message
     keyboard = [
         [InlineKeyboardButton("Join Telegram Channel 1", url=f"https://t.me/{TELEGRAM_CHANNEL1[1:]}")],
         [InlineKeyboardButton("Join Telegram Channel 2", url=f"https://t.me/{TELEGRAM_CHANNEL2[1:]}")],
-        [InlineKeyboardButton("Join WhatsApp Channel", url=WHATSAPP_LINK)]
+        [InlineKeyboardButton("Join WhatsApp Channel", url=WHATSAPP_LINK)],
     ]
     if user_data and not user_data["channels_verified"]:
         keyboard.append([InlineKeyboardButton("Verify", callback_data="verify_channels")])
@@ -158,7 +204,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     message = (
         f"Welcome! {'You’ve been given 10 points.' if points is not None else 'Welcome back!'} "
-        f"Use /quest to earn more and /total to check your balance.\n\n"
+        f"Use /quest to earn more, /total to check your balance, or /invite to get your invite link.\n\n"
         f"Join these channels for a one-time 30-point bonus (10 points each):\n"
         f"- Telegram Channel 1: {TELEGRAM_CHANNEL1}\n"
         f"- Telegram Channel 2: {TELEGRAM_CHANNEL2}\n"
@@ -179,8 +225,12 @@ async def quest(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user_data = get_user_data(uid)
-    points = user_data["points"] if user_data else 0
-    await update.message.reply_text(f"Your total points: {points}")
+    if user_data:
+        points = user_data["points"]
+        invites = user_data["invites_count"]
+        await update.message.reply_text(f"Your total points: {points}\nSuccessful invites: {invites}")
+    else:
+        await update.message.reply_text("Your total points: 0\nSuccessful invites: 0")
 
 async def invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -198,6 +248,7 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = get_user_data(uid)
 
     if not user_data:
+        logger.warning(f"User {uid} attempted verification without starting")
         await query.message.reply_text("Please use /start first.")
         return
 
@@ -218,8 +269,10 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_member2 = await context.bot.get_chat_member(TELEGRAM_CHANNEL2, uid)
         is_member1 = chat_member1.status in ["member", "administrator", "creator"]
         is_member2 = chat_member2.status in ["member", "administrator", "creator"]
+        logger.info(f"User {uid} membership: Channel1={is_member1}, Channel2={is_member2}")
     except Exception as e:
-        await query.message.reply_text(f"Error checking channel membership: {e}")
+        logger.error(f"Error checking channel membership for {uid}: {e}")
+        await query.message.reply_text("Error checking channel membership. Ensure the bot is an admin in both channels.")
         return
 
     update_channel_status(uid, telegram_channel1_joined=is_member1, telegram_channel2_joined=is_member2)
@@ -235,8 +288,10 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
         await query.message.reply_text("30 points added!")
+        logger.info(f"User {uid} verified channels and received 30 points")
     else:
         await query.message.reply_text("Please join both Telegram channels to verify and claim 30 points.")
+        logger.info(f"User {uid} failed verification: Channel1={is_member1}, Channel2={is_member2}")
 
 async def already_verified(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -253,9 +308,13 @@ async def health_check():
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     global application
-    update = Update.de_json(await request.json(), application.bot)
-    await application.process_update(update)
-    return {"ok": True}
+    try:
+        update = Update.de_json(await request.json(), application.bot)
+        await application.process_update(update)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return {"ok": False}
 
 # Initialize and run the application
 async def start_application():
@@ -269,9 +328,13 @@ async def start_application():
     application.add_handler(CallbackQueryHandler(already_verified, pattern="already_verified"))
     await application.initialize()
     if BASE_URL:
-        await application.bot.set_webhook(url=f"{BASE_URL}/telegram/webhook")
+        try:
+            await application.bot.set_webhook(url=f"{BASE_URL}/telegram/webhook")
+            logger.info(f"Webhook set to {BASE_URL}/telegram/webhook")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}")
     else:
-        print("Warning: BASE_URL not set, webhook not configured. Set it manually after deployment.")
+        logger.warning("BASE_URL not set, webhook not configured. Set it manually after deployment.")
 
 # Uvicorn configuration and startup
 if __name__ == "__main__":
@@ -281,6 +344,7 @@ if __name__ == "__main__":
         if not globals().get(name):
             missing.append(name)
     if missing:
+        logger.error(f"Missing required config values: {', '.join(missing)}")
         raise RuntimeError(f"Missing required config values: {', '.join(missing)}")
 
     loop = asyncio.new_event_loop()
