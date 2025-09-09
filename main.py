@@ -24,7 +24,7 @@ PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 TELEGRAM_CHANNEL1 = os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x")
 TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@qaidyno804")
-WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example")
+WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/4356765")
 
 # Database connection
 def get_db_connection():
@@ -70,6 +70,7 @@ def init_db():
                 ]:
                     cur.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
                 conn.commit()
+                logger.info("Database initialized successfully")
     except psycopg2.Error as e:
         logger.error(f"Database initialization failed: {e}")
         raise
@@ -130,29 +131,29 @@ def update_points(uid: int, points: int):
         logger.error(f"Failed to update points for {uid}: {e}")
         raise
 
-def update_channel_status(uid: int, channel1: bool = None, channel2: bool = None, whatsapp: bool = None, verified: bool = None):
+def update_channel_status(uid: int, telegram_channel1_joined: bool = None, telegram_channel2_joined: bool = None, whatsapp_clicked: bool = None, channels_verified: bool = None):
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 updates = []
                 params = []
-                if channel1 is not None:
+                if telegram_channel1_joined is not None:
                     updates.append("telegram_channel1_joined = %s")
-                    params.append(channel1)
-                if channel2 is not None:
+                    params.append(telegram_channel1_joined)
+                if telegram_channel2_joined is not None:
                     updates.append("telegram_channel2_joined = %s")
-                    params.append(channel2)
-                if whatsapp is not None:
+                    params.append(telegram_channel2_joined)
+                if whatsapp_clicked is not None:
                     updates.append("whatsapp_clicked = %s")
-                    params.append(whatsapp)
-                if verified is not None:
+                    params.append(whatsapp_clicked)
+                if channels_verified is not None:
                     updates.append("channels_verified = %s")
-                    params.append(verified)
+                    params.append(channels_verified)
                 if updates:
                     params.append(uid)
                     cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s", params)
                     conn.commit()
-                    logger.info(f"Updated channel status for user {uid}")
+                    logger.info(f"Updated channel status for user {uid}: {updates}")
     except psycopg2.Error as e:
         logger.error(f"Failed to update channel status for {uid}: {e}")
         raise
@@ -176,6 +177,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("INVITE_"):
         try:
             invited_by = int(args[0].split("_")[1])
+            logger.info(f"User {uid} started with invite code {args[0]} from {invited_by}")
         except (IndexError, ValueError):
             logger.warning(f"Invalid invite code for user {uid}: {args}")
             pass
@@ -275,20 +277,29 @@ async def verify_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Error checking channel membership. Ensure the bot is an admin in both channels.")
         return
 
-    update_channel_status(uid, telegram_channel1_joined=is_member1, telegram_channel2_joined=is_member2)
+    try:
+        update_channel_status(uid, telegram_channel1_joined=is_member1, telegram_channel2_joined=is_member2)
+    except Exception as e:
+        logger.error(f"Failed to update channel status for {uid}: {e}")
+        await query.message.reply_text("Database error during verification. Please try again later.")
+        return
 
     if is_member1 and is_member2:
-        update_channel_status(uid, whatsapp_clicked=True, channels_verified=True)
-        update_points(uid, 30)
-        keyboard = [
-            [InlineKeyboardButton("Join Telegram Channel 1", url=f"https://t.me/{TELEGRAM_CHANNEL1[1:]}")],
-            [InlineKeyboardButton("Join Telegram Channel 2", url=f"https://t.me/{TELEGRAM_CHANNEL2[1:]}")],
-            [InlineKeyboardButton("Join WhatsApp Channel", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("Verified", callback_data="already_verified")]
-        ]
-        await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
-        await query.message.reply_text("30 points added!")
-        logger.info(f"User {uid} verified channels and received 30 points")
+        try:
+            update_channel_status(uid, whatsapp_clicked=True, channels_verified=True)
+            update_points(uid, 30)
+            keyboard = [
+                [InlineKeyboardButton("Join Telegram Channel 1", url=f"https://t.me/{TELEGRAM_CHANNEL1[1:]}")],
+                [InlineKeyboardButton("Join Telegram Channel 2", url=f"https://t.me/{TELEGRAM_CHANNEL2[1:]}")],
+                [InlineKeyboardButton("Join WhatsApp Channel", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("Verified", callback_data="already_verified")]
+            ]
+            await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.message.reply_text("30 points added!")
+            logger.info(f"User {uid} verified channels and received 30 points")
+        except Exception as e:
+            logger.error(f"Failed to finalize verification for {uid}: {e}")
+            await query.message.reply_text("Error awarding points. Please try again.")
     else:
         await query.message.reply_text("Please join both Telegram channels to verify and claim 30 points.")
         logger.info(f"User {uid} failed verification: Channel1={is_member1}, Channel2={is_member2}")
