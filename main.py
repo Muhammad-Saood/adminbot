@@ -23,7 +23,7 @@ DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 TELEGRAM_CHANNEL1 = os.getenv("TELEGRAM_CHANNEL1", "@InfinityEarn2x")
-TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "@Channel2")
+TELEGRAM_CHANNEL2 = os.getenv("TELEGRAM_CHANNEL2", "qaidyno804")
 WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "https://chat.whatsapp.com/example")
 
 # Database connection
