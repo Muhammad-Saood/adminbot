@@ -7,7 +7,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -27,7 +26,6 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin
 MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Database connection
 def get_db_connection():
