@@ -23,7 +23,7 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID")  # Your admin channel ID
+ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
 MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
