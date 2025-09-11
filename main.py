@@ -5,7 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import uvicorn
 from dotenv import load_dotenv
@@ -226,7 +226,7 @@ async def mini_app():
             const response = await fetch('/api/user/' + userId);
             const data = await response.json();
             document.getElementById('balance').textContent = data.points.toFixed(2);
-            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+            document.getElementById('daily-limit').textContent = `${data.daily_ads_watched}/30`;
             document.getElementById('invited-count').textContent = data.invited_friends;
             document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
         }
@@ -292,8 +292,8 @@ async def mini_app():
     </script>
 </body>
 </html>
-    """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
+    """.replace("{MONETAG_ZONE}", MONETAG_ZONE)
+    return HTMLResponse(html_content)
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
