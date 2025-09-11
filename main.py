@@ -147,7 +147,7 @@ async def withdraw(user_id: int, request: Request):
 # Mini App HTML with Monetag SDK
 @app.get("/app")
 async def mini_app():
-    return HTMLResponse(f"""
+    html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -231,7 +231,7 @@ async def mini_app():
             watchBtn.textContent = 'Watching...';
             try {
                 await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
                     if (data.success) {
                         document.getElementById('balance').textContent = data.points.toFixed(2);
@@ -270,8 +270,8 @@ async def mini_app():
             }
             const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{amount, binance_id: binanceId}})
             });
             const data = await response.json();
             if (data.success) {
@@ -296,7 +296,8 @@ async def mini_app():
     </script>
 </body>
 </html>
-""".replace("{MONETAG_ZONE}", MONETAG_ZONE))
+    """
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
