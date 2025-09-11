@@ -1,4 +1,4 @@
-# main.py - Backend FastAPI server for Telegram Mini App with Monetag
+# main.py - Backend FastAPI server for Telegram Mini App with Monetag 
 import os
 import json
 import psycopg2
@@ -23,6 +23,7 @@ DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
+MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
 
@@ -141,30 +142,10 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Postback endpoint for Monetag
-@app.post("/monetag/postback")
-async def monetag_postback(request: Request):
-    data = await request.json()
-    # Validate postback data from Monetag (e.g., event type, user ID)
-    event_type = data.get("event_type")
-    user_id = data.get("user_id")  # From Monetag macro {USER_ID}
-    if event_type == "ad_completed":
-        update_daily_ads(user_id, 1)
-        update_points(user_id, 20.0)
-        # Handle referral bonus if applicable
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT invited_by FROM users WHERE user_id = %s", (user_id,))
-                result = cur.fetchone()
-                if result and result['invited_by']:
-                    referrer_id = result['invited_by']
-                    update_points(referrer_id, 2.0)
-    return {"status": "ok"}
-
 # Mini App HTML with Monetag SDK
 @app.get("/app")
 async def mini_app():
-    html_content = """
+    html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,20 +153,20 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="9859391" data-sdk="show_9859391"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        .nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }
-        .nav-btn { flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }
-        .nav-btn.active { background: rgba(255,255,255,0.2); }
-        .page { display: none; min-height: 100vh; }
-        .page.active { display: block; }
-        .header { text-align: center; margin: 20px 0; }
-        .ad-panel { background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }
-        .watch-btn { background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
-        .input { padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }
-        .withdraw-btn { background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-        .copy-btn { background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
+        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+        .nav {{ position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }}
+        .nav-btn {{ flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }}
+        .nav-btn.active {{ background: rgba(255,255,255,0.2); }}
+        .page {{ display: none; min-height: 100vh; }}
+        .page.active {{ display: block; }}
+        .header {{ text-align: center; margin: 20px 0; }}
+        .ad-panel {{ background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }}
+        .watch-btn {{ background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }}
+        .input {{ padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }}
+        .withdraw-btn {{ background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
+        .copy-btn {{ background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }}
     </style>
 </head>
 <body>
@@ -233,81 +214,80 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {
+        async function loadData() {{
             const response = await fetch('/api/user/' + userId);
             const data = await response.json();
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
-        }
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/your_bot?start=ref' + userId;
+        }}
 
-        async function watchAd() {
+        async function watchAd() {{
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {
-                await show_9859391().then(async () => {
-                    // Reward user after ad is watched
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+            try {{
+                await show_{MONETAG_ZONE}().then(async () => {{
+                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
-                    if (data.success) {
+                    if (data.success) {{
                         document.getElementById('balance').textContent = data.points.toFixed(2);
                         document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
+                    }} else if (data.limit_reached) {{
                         tg.showAlert('Daily limit reached!');
-                    } else {
+                    }} else {{
                         tg.showAlert('Error watching ad');
-                    }
+                    }}
                     loadData();
-                }).catch(error => {
+                }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                });
-            } finally {
+                }});
+            }} finally {{
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }
-        }
+            }}
+        }}
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {
+        async function copyLink() {{
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }
+        }}
 
-        async function withdraw() {
+        async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }
-            const response = await fetch('/api/withdraw/' + userId, {
+            }}
+            const response = await fetch('/api/withdraw/' + userId, {{
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
-            });
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{amount, binance_id: binanceId}})
+            }});
             const data = await response.json();
-            if (data.success) {
+            if (data.success) {{
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
                 loadData();
-            } else {
+            }} else {{
                 tg.showAlert(data.message || 'Withdraw failed');
-            }
-        }
+            }}
+        }}
 
-        function showPage(page) {
+        function showPage(page) {{
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }
+        }}
 
         // Load initial data
         loadData();
@@ -315,7 +295,7 @@ async def mini_app():
 </body>
 </html>
     """
-    return HTMLResponse(html_content)
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
@@ -336,8 +316,3 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
-
-# Run the application
-if __name__ == "__main__":
-    init_db()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
