@@ -22,7 +22,7 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID")  # Your admin channel ID
+ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
 
 app = FastAPI()
 
@@ -141,7 +141,27 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML with Monetag
+# Postback endpoint for Monetag
+@app.post("/monetag/postback")
+async def monetag_postback(request: Request):
+    data = await request.json()
+    # Validate postback data from Monetag (e.g., event type, user ID)
+    event_type = data.get("event_type")
+    user_id = data.get("user_id")  # From Monetag macro {USER_ID}
+    if event_type == "ad_completed":
+        update_daily_ads(user_id, 1)
+        update_points(user_id, 20.0)
+        # Handle referral bonus if applicable
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT invited_by FROM users WHERE user_id = %s", (user_id,))
+                result = cur.fetchone()
+                if result and result['invited_by']:
+                    referrer_id = result['invited_by']
+                    update_points(referrer_id, 2.0)
+    return {"status": "ok"}
+
+# Mini App HTML with Monetag SDK
 @app.get("/app")
 async def mini_app():
     html_content = """
@@ -219,7 +239,7 @@ async def mini_app():
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/your_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/your_bot?start=ref' + userId;
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
         }
 
         async function watchAd() {
@@ -316,3 +336,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
+
+# Run the application
+if __name__ == "__main__":
+    init_db()
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
