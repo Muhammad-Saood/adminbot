@@ -23,7 +23,7 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
+ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID")  # Your admin channel ID
 MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
@@ -222,7 +222,7 @@ async def mini_app():
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? tg.initDataUnsafe.startParam : 'https://t.me/your_bot?start=ref' + userId;
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/your_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/your_bot?start=ref' + userId;
         }
 
         async function watchAd() {
@@ -230,9 +230,7 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                // Show Monetag rewarded ad
                 await show_{MONETAG_ZONE}().then(async () => {
-                    // Reward user after ad completion
                     const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                     const data = await response.json();
                     if (data.success) {
@@ -270,7 +268,7 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }
-            const response = await fetch('/api/withdraw/' + user_id, {
+            const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({amount, binance_id: binanceId})
