@@ -226,7 +226,7 @@ async def mini_app():
             const response = await fetch('/api/user/' + userId);
             const data = await response.json();
             document.getElementById('balance').textContent = data.points.toFixed(2);
-            document.getElementById('daily-limit').textContent = `${data.daily_ads_watched}/30`;
+            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
             document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
         }
@@ -236,7 +236,7 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await show_{MONETAG_ZONE}().then(() => {
+                await window['show_' + '{MONETAG_ZONE}']().then(() => {
                     tg.showAlert('Ad watched! Reward processing...');
                 }).catch(error => {
                     tg.showAlert('Ad failed to load');
