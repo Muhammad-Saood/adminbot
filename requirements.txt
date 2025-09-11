@@ -1,5 +1,5 @@
 fastapi==0.110.2
 uvicorn==0.29.0
-python-telegram-bot==20.6
+python-telegram-bot[webhooks]==20.6
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
