@@ -153,7 +153,7 @@ async def withdraw(user_id: int, request: Request):
 # Mini App HTML with Monetag SDK and real-time updates
 @app.get("/app")
 async def mini_app():
-    html_content = f"""
+    html_content = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -161,20 +161,20 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <script src="//libtl.com/sdk.js" data-zone="9859391" data-sdk="show_9859391"></script>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-        .nav {{ position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }}
-        .nav-btn {{ flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }}
-        .nav-btn.active {{ background: rgba(255,255,255,0.2); }}
-        .page {{ display: none; min-height: 100vh; }}
-        .page.active {{ display: block; }}
-        .header {{ text-align: center; margin: 20px 0; }}
-        .ad-panel {{ background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }}
-        .watch-btn {{ background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }}
-        .input {{ padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }}
-        .withdraw-btn {{ background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
-        .copy-btn {{ background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }}
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }
+        .nav-btn { flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }
+        .nav-btn.active { background: rgba(255,255,255,0.2); }
+        .page { display: none; min-height: 100vh; }
+        .page.active { display: block; }
+        .header { text-align: center; margin: 20px 0; }
+        .ad-panel { background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }
+        .watch-btn { background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        .input { padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }
+        .withdraw-btn { background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .copy-btn { background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -236,7 +236,7 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await window['show_' + '{MONETAG_ZONE}']().then(() => {
+                await show_9859391().then(() => {
                     tg.showAlert('Ad watched! Reward processing...');
                 }).catch(error => {
                     tg.showAlert('Ad failed to load');
@@ -292,7 +292,7 @@ async def mini_app():
     </script>
 </body>
 </html>
-    """.replace("{MONETAG_ZONE}", MONETAG_ZONE)
+    """
     return HTMLResponse(html_content)
 
 # Telegram bot setup for launching Mini App
