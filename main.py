@@ -1,4 +1,4 @@
-# main.py - Backend FastAPI server for Telegram Mini App
+# main.py - Backend FastAPI server for Telegram Mini App with Monetag postback
 import os
 import json
 import psycopg2
@@ -23,6 +23,7 @@ DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
+MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
 
@@ -122,15 +123,27 @@ async def get_user(user_id: int):
     user = get_or_create_user(user_id)
     return {"points": user["points"], "daily_ads_watched": user["daily_ads_watched"], "invited_friends": user["invited_friends"]}
 
-@app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int):
-    user = get_or_create_user(user_id)
-    today = datetime.now().date()
-    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
-        return {"success": False, "limit_reached": True}
-    update_daily_ads(user_id, 1)
-    update_points(user_id, 20.0)  # Award 20 $DOGS immediately via API
-    return {"success": True, "points": get_user_points(user_id), "daily_ads_watched": user["daily_ads_watched"] + 1}
+@app.get("/monetag/postback")
+async def monetag_postback(
+    telegram_id: int = None,
+    zone_id: int = None,
+    sub_zone_id: int = None,
+    event_type: str = None,
+    reward_event_type: str = None,
+    estimated_price: float = None,
+    ymid: str = None,
+    request_var: str = None
+):
+    if telegram_id and event_type in ["impression", "click"] and reward_event_type == "yes":
+        user = get_or_create_user(telegram_id)
+        today = datetime.now().date()
+        if not (user["last_ad_date"] == today and user["daily_ads_watched"] >= 30):
+            update_daily_ads(telegram_id, 1)
+            update_points(telegram_id, 20.0)  # Award 20 $DOGS
+            if user["invited_by"]:
+                referrer_id = user["invited_by"]
+                update_points(referrer_id, 2.0)  # 10% bonus
+    return {"status": "ok"}
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
@@ -143,7 +156,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML with simplified ad system
+# Mini App HTML with Monetag postback
 @app.get("/app")
 async def mini_app():
     html_content = r"""
@@ -154,6 +167,7 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="//libtl.com/sdk.js" data-zone="9859391" data-sdk="show_9859391"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
         .nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }
@@ -229,25 +243,21 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
 
-            // Simulate ad blocker detection
-            if (typeof window.showAd === 'undefined' || navigator.userAgent.includes('AdBlock')) {
-                tg.showAlert('Ad blocked or not opened! No reward.');
+            // Trigger Monetag ad with user ID as ymid
+            try {
+                await show_9859391({ ymid: userId }).then(() => {
+                    tg.showAlert('Ad started! Waiting for confirmation...');
+                }).catch(error => {
+                    tg.showAlert('Ad failed to load');
+                    console.error('Monetag ad error:', error);
+                    watchBtn.disabled = false;
+                    watchBtn.textContent = 'Watch Ad';
+                });
+            } catch (e) {
+                tg.showAlert('Ad issue detected');
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
                 return;
-            }
-
-            // Simulate 2-second ad watch
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
-            const data = await response.json();
-            if (data.success) {
-                tg.showAlert('Ad watched! +20 $DOGS');
-                loadData();
-            } else if (data.limit_reached) {
-                tg.showAlert('Daily limit reached!');
-            } else {
-                tg.showAlert('Error watching ad');
             }
 
             // Re-enable button after 2 seconds
