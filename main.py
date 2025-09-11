@@ -7,7 +7,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -26,7 +25,6 @@ BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID")  # Your admin channel ID
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")  # Kept for potential favicon
 
 # Database connection
 def get_db_connection():
@@ -143,7 +141,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML with Monetag restored
+# Mini App HTML with Monetag
 @app.get("/app")
 async def mini_app():
     html_content = """
@@ -155,7 +153,6 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="9859391" data-sdk="show_9859391"></script>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico"> <!-- Optional: Link to favicon -->
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
         .nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }
@@ -269,7 +266,7 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }
-            const response = await fetch('/api/withdraw/' + user_id, {
+            const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({amount, binance_id: binanceId})
