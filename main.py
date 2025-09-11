@@ -316,8 +316,3 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
-
-# Run the application
-if __name__ == "__main__":
-    init_db()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
