@@ -329,116 +329,117 @@ async def mini_app():
         document.getElementById('user-id').textContent = userId;
         const startParam = tg.initDataUnsafe.startParam;
 
-        async function loadData() {
-            // Process referral from start_param
-            if (startParam && startParam.startsWith('ref')) {
-                try {
-                    const response = await fetch(`/api/init_referral/${userId}`, {
+        async function loadData() {{
+            // Process referral from start_param if present
+            if (startParam && startParam.startsWith('ref')) {{
+                try {{
+                    const response = await fetch(`/api/init_referral/${{userId}}`, {{
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({start_param: startParam})
-                    });
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{start_param: startParam}})
+                    }});
                     const data = await response.json();
-                    if (data.success) {
-                        console.log(`Referral set for ${data.invited_by}`);
-                    }
-                } catch (error) {
+                    if (data.success) {{
+                        tg.showAlert(`Referral set! Invited by ${{data.invited_by}}`);
+                    }}
+                }} catch (error) {{
                     console.error('Error processing referral:', error);
-                }
-            }
+                }}
+            }}
             
             // Load user data
-            try {
+            try {{
                 const response = await fetch('/api/user/' + userId);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
-                document.getElementById('invite-link').textContent = startParam && startParam.startsWith('ref') ? 'https://t.me/jdsrhukds_bot?start=' + startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
-            } catch (error) {
+                document.getElementById('invite-link').textContent = startParam ? 'https://t.me/jdsrhukds_bot?start=' + startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+            }} catch (error) {{
                 console.error('Error loading user data:', error);
                 tg.showAlert('Failed to load user data. Please try again.');
-            }
-        }
+            }}
+        }}
 
-        async function watchAd() {
+        async function watchAd() {{
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {
-                await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+            try {{
+                await show_{MONETAG_ZONE}().then(async () => {{
+                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
-                    if (data.success) {
+                    if (data.success) {{
                         document.getElementById('balance').textContent = data.points.toFixed(2);
                         document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
+                    }} else if (data.limit_reached) {{
                         tg.showAlert('Daily limit reached!');
-                    } else {
+                    }} else {{
                         tg.showAlert('Error watching ad');
-                    }
+                    }}
                     await loadData();
-                }).catch(error => {
+                }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                });
-            } finally {
+                }});
+            }} finally {{
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }
-        }
+            }}
+        }}
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {
+        async function copyLink() {{
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }
+        }}
 
-        async function withdraw() {
+        async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }
-            try {
-                const response = await fetch('/api/withdraw/' + userId, {
+            }}
+            try {{
+                const response = await fetch('/api/withdraw/' + userId, {{
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({amount, binance_id: binanceId})
-                });
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{amount, binance_id: binanceId}})
+                }});
                 const data = await response.json();
-                if (data.success) {
+                if (data.success) {{
                     tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                     document.getElementById('amount').value = '';
                     document.getElementById('binance-id').value = '';
                     await loadData();
-                } else {
+                }} else {{
                     tg.showAlert(data.message || 'Withdraw failed');
-                }
-            } catch (error) {
+                }}
+            }} catch (error) {{
                 console.error('Error processing withdrawal:', error);
                 tg.showAlert('Withdrawal failed. Please try again.');
-            }
-        }
+            }}
+        }}
 
-        function showPage(page) {
+        function showPage(page) {{
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }
+        }}
 
+        // Load initial data
         loadData();
     </script>
 </body>
 </html>
     """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
-
+    
 # Telegram bot setup
 application = Application.builder().token(BOT_TOKEN).build()
 
