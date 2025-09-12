@@ -284,89 +284,90 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {{
-            try {{
+        // Referral link is generated for the current user below
+        async function loadData() {
+            try {
                 const response = await fetch('/api/user/' + userId);
-                if (!response.ok) {{
+                if (!response.ok) {
                     throw new Error('Failed to load data');
-                }}
+                }
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 const myRefParam = 'ref' + userId;
                 document.getElementById('invite-link').textContent = 'https://t.me/jdsrhukds_bot?start=' + myRefParam;
-            }} catch (error) {{
+            } catch (error) {
                 tg.showAlert('Failed to load data: ' + error.message);
                 console.error('Load data error:', error);
-            }}
-        }}
+            }
+        }
 
-        async function watchAd() {{
+        async function watchAd() {
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {{
-                await show_{MONETAG_ZONE}().then(async () => {{
+            try {
+                await show_{MONETAG_ZONE}().then(async () => {
                     const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
-                    if (data.success) {{
+                    if (data.success) {
                         document.getElementById('balance').textContent = data.points.toFixed(2);
                         document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    }} else if (data.limit_reached) {{
+                    } else if (data.limit_reached) {
                         tg.showAlert('Daily limit reached!');
-                    }} else {{
+                    } else {
                         tg.showAlert('Error watching ad');
-                    }}
+                    }
                     loadData();
-                }}).catch(error => {{
+                }).catch(error => {
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                }});
-            }} finally {{
+                });
+            } finally {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }}
-        }}
+            }
+        }
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {{
+        async function copyLink() {
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }}
+        }
 
-        async function withdraw() {{
+        async function withdraw() {
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {{
+            if (amount < 2000 || !binanceId) {
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }}
-            const response = await fetch('/api/withdraw/' + userId, {{
+            }
+            const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{amount, binance_id: binanceId}})
-            }});
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({amount, binance_id: binanceId})
+            });
             const data = await response.json();
-            if (data.success) {{
+            if (data.success) {
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
                 loadData();
-            }} else {{
+            } else {
                 tg.showAlert(data.message || 'Withdraw failed');
-            }}
-        }}
+            }
+        }
 
-        function showPage(page) {{
+        function showPage(page) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }}
+        }
 
         loadData();
     </script>
