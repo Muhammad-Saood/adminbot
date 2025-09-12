@@ -23,13 +23,11 @@ USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
 
-# Initialize JSON file (runs on startup, but not critical if fails)
+# Initialize JSON file
 async def init_json():
     try:
-        # Touch the file to create if needed
         async with aiofiles.open(USERS_FILE, mode='a') as f:
             pass
-        # Check and initialize empty dict if missing content
         async with aiofiles.open(USERS_FILE, mode='r') as f:
             content = await f.read()
             if not content.strip():
@@ -69,7 +67,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
         try:
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Created new user {user_id} in JSON")
+            print(f"Created new user {user_id} with invited_by: {invited_by}")
         except Exception as e:
             print(f"Error writing new user to JSON: {e}")
     
@@ -85,6 +83,7 @@ async def update_points(user_id: int, points: float):
             users[user_id_str]["points"] += points
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            print(f"Updated points for user {user_id}: +{points}")
     except Exception as e:
         print(f"Error updating points for user {user_id}: {e}")
 
@@ -103,6 +102,7 @@ async def update_daily_ads(user_id: int, ads_watched: int):
                 users[user_id_str]["last_ad_date"] = today
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            print(f"Updated daily ads for user {user_id}: {ads_watched}")
     except Exception as e:
         print(f"Error updating daily ads for user {user_id}: {e}")
 
@@ -116,6 +116,9 @@ async def add_invited_friend(user_id: int):
             users[user_id_str]["invited_friends"] += 1
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            print(f"Incremented invited_friends for user {user_id}: {users[user_id_str]['invited_friends']}")
+        else:
+            print(f"User {user_id} not found in JSON for invited_friends update")
     except Exception as e:
         print(f"Error adding invited friend for user {user_id}: {e}")
 
@@ -129,6 +132,7 @@ async def set_binance_id(user_id: int, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            print(f"Set binance_id for user {user_id}")
     except Exception as e:
         print(f"Error setting binance_id for user {user_id}: {e}")
 
@@ -143,11 +147,11 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            # Notify admin
             await application.bot.send_message(
                 chat_id=ADMIN_CHANNEL_ID,
                 text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
             )
+            print(f"Withdrawal processed for user {user_id}: {amount} $DOGS")
             return True
     except Exception as e:
         print(f"Error processing withdrawal for user {user_id}: {e}")
@@ -187,8 +191,7 @@ async def watch_ad(user_id: int):
     await update_daily_ads(user_id, 1)
     await update_points(user_id, 20.0)
     if user.get("invited_by"):
-        await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
-    
+        await update_points(user["invited_by"], 2.0)
     user = await get_or_create_user(user_id)
     return {
         "success": True,
@@ -280,12 +283,17 @@ async def mini_app():
         document.getElementById('user-id').textContent = userId;
 
         async function loadData() {{
-            const response = await fetch('/api/user/' + userId);
-            const data = await response.json();
-            document.getElementById('balance').textContent = data.points.toFixed(2);
-            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-            document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+            try {{
+                const response = await fetch('/api/user/' + userId);
+                const data = await response.json();
+                document.getElementById('balance').textContent = data.points.toFixed(2);
+                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+                document.getElementById('invited-count').textContent = data.invited_friends;
+                document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+            }} catch (error) {{
+                console.error('Error loading user data:', error);
+                tg.showAlert('Failed to load user data. Please try again.');
+            }}
         }}
 
         async function watchAd() {{
@@ -305,7 +313,7 @@ async def mini_app():
                     }} else {{
                         tg.showAlert('Error watching ad');
                     }}
-                    loadData();
+                    await loadData();
                 }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
@@ -331,19 +339,24 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }}
-            const response = await fetch('/api/withdraw/' + userId, {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{amount, binance_id: binanceId}})
-            }});
-            const data = await response.json();
-            if (data.success) {{
-                tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
-                document.getElementById('amount').value = '';
-                document.getElementById('binance-id').value = '';
-                loadData();
-            }} else {{
-                tg.showAlert(data.message || 'Withdraw failed');
+            try {{
+                const response = await fetch('/api/withdraw/' + userId, {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{amount, binance_id: binanceId}})
+                }});
+                const data = await response.json();
+                if (data.success) {{
+                    tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
+                    document.getElementById('amount').value = '';
+                    document.getElementById('binance-id').value = '';
+                    await loadData();
+                }} else {{
+                    tg.showAlert(data.message || 'Withdraw failed');
+                }}
+            }} catch (error) {{
+                console.error('Error processing withdrawal:', error);
+                tg.showAlert('Withdrawal failed. Please try again.');
             }}
         }}
 
@@ -368,12 +381,21 @@ application = Application.builder().token(BOT_TOKEN).build()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     invited_by = None
-    if args and args[0].startswith("ref"):
+    print(f"Processing /start for user {update.effective_user.id} with args: {args}")
+    
+    if args and len(args) > 0 and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            await add_invited_friend(invited_by)
-        except ValueError:
-            pass
+            # Verify referrer exists before incrementing
+            referrer = await get_or_create_user(invited_by)
+            if referrer:
+                await add_invited_friend(invited_by)
+                print(f"Referral processed: {update.effective_user.id} invited by {invited_by}")
+            else:
+                print(f"Referrer {invited_by} does not exist")
+        except (ValueError, TypeError) as e:
+            print(f"Invalid referral ID in args: {args[0]}, error: {e}")
+    
     await get_or_create_user(update.effective_user.id, invited_by)
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -383,7 +405,7 @@ application.add_handler(CommandHandler("start", start))
 
 async def main():
     await init_json()
-    asyncio.create_task(self_ping())  # Start self-ping task
+    asyncio.create_task(self_ping())
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
