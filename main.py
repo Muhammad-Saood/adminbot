@@ -1,5 +1,7 @@
 import os
 import json
+import aiofiles
+import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
@@ -7,110 +9,157 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-from typing import Optional
 import asyncio
-import aiohttp
+from typing import Optional
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
-MONETAG_ZONE = "9859391"  # Your Monetag data-zone
-DATA_FILE = "users.json"
+ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
+MONETAG_ZONE = "9859391"
+USERS_FILE = "users.json"
 
 app = FastAPI()
 
-# Load or initialize user data
-def load_users():
+# Initialize JSON file
+async def init_json():
     try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-# Save user data
-def save_users(users):
-    with open(DATA_FILE, "w") as f:
-        json.dump(users, f)
+        async with aiofiles.open(USERS_FILE, mode='a') as f:
+            pass
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            content = await f.read()
+            if not content:
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps({}))
+    except Exception as e:
+        print(f"Error initializing JSON file: {e}")
 
 # User data functions
-def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
-    users = load_users()
-    if str(user_id) not in users:
-        users[str(user_id)] = {
+async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read() or "{}")
+    
+    user_id_str = str(user_id)
+    if user_id_str not in users:
+        users[user_id_str] = {
+            "user_id": user_id,
             "points": 0.0,
             "daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
             "binance_id": None,
-            "invited_by": invited_by
+            "invited_by": invited_by,
+            "created_at": datetime.now().isoformat()
         }
-        save_users(users)
-    return users[str(user_id)]
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
+    
+    return users[user_id_str]
 
-def update_points(user_id: int, points: float):
-    users = load_users()
-    if str(user_id) in users:
-        users[str(user_id)]["points"] = round(users[str(user_id)]["points"] + points, 2)
-        save_users(users)
+async def update_points(user_id: int, points: float):
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read())
+    
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]["points"] += points
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
 
-def update_daily_ads(user_id: int, ads_watched: int):
-    today = datetime.now().date()
-    users = load_users()
-    if str(user_id) in users:
-        user = users[str(user_id)]
-        if user["last_ad_date"] == str(today) and user["daily_ads_watched"] >= 30:
-            return
-        if user["last_ad_date"] != str(today):
-            user["daily_ads_watched"] = 0
-            user["last_ad_date"] = str(today)
-        user["daily_ads_watched"] += ads_watched
-        save_users(users)
+async def update_daily_ads(user_id: int, ads_watched: int):
+    today = datetime.now().date().isoformat()
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read())
+    
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        if users[user_id_str]["last_ad_date"] == today:
+            users[user_id_str]["daily_ads_watched"] += ads_watched
+        else:
+            users[user_id_str]["daily_ads_watched"] = ads_watched
+            users[user_id_str]["last_ad_date"] = today
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
 
-def add_invited_friend(user_id: int):
-    users = load_users()
-    if str(user_id) in users:
-        users[str(user_id)]["invited_friends"] += 1
-        save_users(users)
+async def add_invited_friend(user_id: int):
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read())
+    
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]["invited_friends"] += 1
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
 
-def set_binance_id(user_id: int, binance_id: str):
-    users = load_users()
-    if str(user_id) in users:
-        users[str(user_id)]["binance_id"] = binance_id
-        save_users(users)
+async def set_binance_id(user_id: int, binance_id: str):
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read())
+    
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]["binance_id"] = binance_id
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
 
-def withdraw_points(user_id: int, amount: float, binance_id: str):
-    users = load_users()
-    if str(user_id) in users:
-        user = users[str(user_id)]
-        if user["points"] >= amount:
-            user["points"] = round(user["points"] - amount, 2)
-            user["binance_id"] = binance_id
-            save_users(users)
-            application.bot.send_message(chat_id=ADMIN_CHANNEL_ID, text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}")
-            return True
+async def withdraw_points(user_id: int, amount: float, binance_id: str):
+    async with aiofiles.open(USERS_FILE, mode='r') as f:
+        users = json.loads(await f.read())
+    
+    user_id_str = str(user_id)
+    if user_id_str in users and users[user_id_str]["points"] >= amount:
+        users[user_id_str]["points"] -= amount
+        users[user_id_str]["binance_id"] = binance_id
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
+        # Notify admin
+        await application.bot.send_message(
+            chat_id=ADMIN_CHANNEL_ID,
+            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+        )
+        return True
     return False
+
+# Self-ping task
+async def self_ping():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(BASE_URL) as response:
+                    print(f"Self-ping status: {response.status}")
+            except Exception as e:
+                print(f"Self-ping error: {e}")
+            await asyncio.sleep(240)  # 4 minutes
 
 # API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user = get_or_create_user(user_id)
-    return {"points": user["points"], "daily_ads_watched": user["daily_ads_watched"], "invited_friends": user["invited_friends"]}
+    user = await get_or_create_user(user_id)
+    return {
+        "points": user["points"],
+        "daily_ads_watched": user["daily_ads_watched"],
+        "invited_friends": user["invited_friends"]
+    }
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    user = get_or_create_user(user_id)
-    today = datetime.now().date()
-    if user["last_ad_date"] == str(today) and user["daily_ads_watched"] >= 30:
+    user = await get_or_create_user(user_id)
+    today = datetime.now().date().isoformat()
+    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         return {"success": False, "limit_reached": True}
-    update_daily_ads(user_id, 1)
-    update_points(user_id, 20.0)
+    
+    await update_daily_ads(user_id, 1)
+    await update_points(user_id, 20.0)
     if user["invited_by"]:
-        referrer_id = user["invited_by"]
-        update_points(referrer_id, 2.0)  # 10% of 20 $DOGS
-    return {"success": True, "points": get_or_create_user(user_id)["points"], "daily_ads_watched": get_or_create_user(user_id)["daily_ads_watched"]}
+        await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
+    
+    user = await get_or_create_user(user_id)
+    return {
+        "success": True,
+        "points": user["points"],
+        "daily_ads_watched": user["daily_ads_watched"]
+    }
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
@@ -119,7 +168,7 @@ async def withdraw(user_id: int, request: Request):
     binance_id = data["binance_id"]
     if amount < 2000 or not binance_id:
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
-    if withdraw_points(user_id, amount, binance_id):
+    if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
@@ -195,80 +244,80 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {
+        async function loadData() {{
             const response = await fetch('/api/user/' + userId);
             const data = await response.json();
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
             document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
-        }
+        }}
 
-        async function watchAd() {
+        async function watchAd() {{
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {
-                await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+            try {{
+                await show_{MONETAG_ZONE}().then(async () => {{
+                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
-                    if (data.success) {
+                    if (data.success) {{
                         document.getElementById('balance').textContent = data.points.toFixed(2);
                         document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
+                    }} else if (data.limit_reached) {{
                         tg.showAlert('Daily limit reached!');
-                    } else {
+                    }} else {{
                         tg.showAlert('Error watching ad');
-                    }
+                    }}
                     loadData();
-                }).catch(error => {
+                }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                });
-            } finally {
+                }});
+            }} finally {{
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }
-        }
+            }}
+        }}
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {
+        async function copyLink() {{
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }
+        }}
 
-        async function withdraw() {
+        async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }
-            const response = await fetch('/api/withdraw/' + userId, {
+            }}
+            const response = await fetch('/api/withdraw/' + userId, {{
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
-            });
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{amount, binance_id: binanceId}})
+            }});
             const data = await response.json();
-            if (data.success) {
+            if (data.success) {{
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
                 loadData();
-            } else {
+            }} else {{
                 tg.showAlert(data.message || 'Withdraw failed');
-            }
-        }
+            }}
+        }}
 
-        function showPage(page) {
+        function showPage(page) {{
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }
+        }}
 
         // Load initial data
         loadData();
@@ -287,30 +336,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            add_invited_friend(invited_by)
+            await add_invited_friend(invited_by)
         except ValueError:
             pass
-    get_or_create_user(update.effective_user.id, invited_by)
+    await get_or_create_user(update.effective_user.id, invited_by)
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
 
-# Self-ping to prevent sleep
-async def ping_self():
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{BASE_URL}/") as response:
-                    pass
-        except Exception:
-            pass
-        await asyncio.sleep(240)  # 4 minutes
-
-# Run bot and server with self-ping
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(ping_self())
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+async def main():
+    await init_json()
+    asyncio.create_task(self_ping())  # Start self-ping task
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+if __name__ == "__main__":
+    asyncio.run(main())
