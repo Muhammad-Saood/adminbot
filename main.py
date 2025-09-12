@@ -6,7 +6,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -24,38 +23,39 @@ USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
 
-# Mount static files directory to serve favicon.ico
-app.mount("/static", StaticFiles(directory="static"), name="static")  # Create a 'static' folder with favicon.ico
-
-# Initialize JSON file silently
+# Initialize JSON file (runs on startup, but not critical if fails)
 async def init_json():
     try:
+        # Touch the file to create if needed
         async with aiofiles.open(USERS_FILE, mode='a') as f:
             pass
+        # Check and initialize empty dict if missing content
         async with aiofiles.open(USERS_FILE, mode='r') as f:
             content = await f.read()
             if not content.strip():
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps({}))
-    except Exception:
-        pass  # Silent initialization
+        print(f"JSON storage initialized at {USERS_FILE}")
+    except Exception as e:
+        print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
 
 # User data functions
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
     users = {}
+    file_exists = False
     try:
         async with aiofiles.open(USERS_FILE, mode='r') as f:
             content = await f.read()
             if content.strip():
                 users = json.loads(content)
+                file_exists = True
     except FileNotFoundError:
-        pass  # Silent file creation
-    except Exception:
-        pass  # Silent error handling
+        print(f"users.json not found, creating new: {USERS_FILE}")
+    except Exception as e:
+        print(f"Error reading users.json: {e}")
     
     user_id_str = str(user_id)
-    is_new = user_id_str not in users
-    if is_new:
+    if user_id_str not in users:
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
@@ -69,9 +69,11 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
         try:
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-        except Exception:
-            pass  # Silent write
-    return users[user_id_str], is_new
+            print(f"Created new user {user_id} in JSON")
+        except Exception as e:
+            print(f"Error writing new user to JSON: {e}")
+    
+    return users[user_id_str]
 
 async def update_points(user_id: int, points: float):
     try:
@@ -83,8 +85,8 @@ async def update_points(user_id: int, points: float):
             users[user_id_str]["points"] += points
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception:
-        pass  # Silent update
+    except Exception as e:
+        print(f"Error updating points for user {user_id}: {e}")
 
 async def update_daily_ads(user_id: int, ads_watched: int):
     today = datetime.now().date().isoformat()
@@ -101,8 +103,8 @@ async def update_daily_ads(user_id: int, ads_watched: int):
                 users[user_id_str]["last_ad_date"] = today
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception:
-        pass  # Silent update
+    except Exception as e:
+        print(f"Error updating daily ads for user {user_id}: {e}")
 
 async def add_invited_friend(user_id: int):
     try:
@@ -114,10 +116,8 @@ async def add_invited_friend(user_id: int):
             users[user_id_str]["invited_friends"] += 1
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            return True
-        return False
-    except Exception:
-        return False  # Silent error
+    except Exception as e:
+        print(f"Error adding invited friend for user {user_id}: {e}")
 
 async def set_binance_id(user_id: int, binance_id: str):
     try:
@@ -129,8 +129,8 @@ async def set_binance_id(user_id: int, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception:
-        pass  # Silent update
+    except Exception as e:
+        print(f"Error setting binance_id for user {user_id}: {e}")
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str):
     try:
@@ -143,36 +143,34 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            # Notify admin
             await application.bot.send_message(
                 chat_id=ADMIN_CHANNEL_ID,
                 text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
             )
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error processing withdrawal for user {user_id}: {e}")
     return False
 
 # Self-ping task
 async def self_ping():
     if not BASE_URL:
+        print("BASE_URL not set, skipping self-ping")
         return
     async with aiohttp.ClientSession() as session:
         while True:
             try:
                 async with session.get(f"{BASE_URL}/") as response:
-                    pass  # Silent ping
-            except Exception:
-                pass  # Silent error
+                    print(f"Self-ping status: {response.status}")
+            except Exception as e:
+                print(f"Self-ping error: {e}")
             await asyncio.sleep(240)  # 4 minutes
 
 # API endpoints for Mini App
-@app.get("/")
-async def root():
-    return {"status": "DOGS Earn App is running!"}
-
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user, _ = await get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
     return {
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
@@ -181,19 +179,17 @@ async def get_user(user_id: int):
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    user, _ = await get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
     today = datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         return {"success": False, "limit_reached": True}
     
-    ad_points = 20.0  # Points for watching one ad
     await update_daily_ads(user_id, 1)
-    await update_points(user_id, ad_points)
+    await update_points(user_id, 20.0)
     if user.get("invited_by"):
-        bonus_points = ad_points * 0.05  # 5% of friend's earnings
-        await update_points(user["invited_by"], bonus_points)
+        await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
     
-    user, _ = await get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
     return {
         "success": True,
         "points": user["points"],
@@ -221,7 +217,6 @@ async def mini_app():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <style>
@@ -284,90 +279,82 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {
-            try {
-                const response = await fetch('/api/user/' + userId);
-                if (!response.ok) {
-                    throw new Error('Failed to load data');
-                }
-                const data = await response.json();
-                document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-                document.getElementById('invited-count').textContent = data.invited_friends;
-                const myRefParam = 'ref' + userId;
-                document.getElementById('invite-link').textContent = 'https://t.me/jdsrhukds_bot?start=' + myRefParam;
-            } catch (error) {
-                tg.showAlert('Failed to load data: ' + error.message);
-                console.error('Load data error:', error);
-            }
-        }
+        async function loadData() {{
+            const response = await fetch('/api/user/' + userId);
+            const data = await response.json();
+            document.getElementById('balance').textContent = data.points.toFixed(2);
+            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+            document.getElementById('invited-count').textContent = data.invited_friends;
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+        }}
 
-        async function watchAd() {
+        async function watchAd() {{
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {
-                await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+            try {{
+                await show_{MONETAG_ZONE}().then(async () => {{
+                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
                     const data = await response.json();
-                    if (data.success) {
+                    if (data.success) {{
                         document.getElementById('balance').textContent = data.points.toFixed(2);
                         document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
+                    }} else if (data.limit_reached) {{
                         tg.showAlert('Daily limit reached!');
-                    } else {
+                    }} else {{
                         tg.showAlert('Error watching ad');
-                    }
-                    await loadData();
-                }).catch(error => {
+                    }}
+                    loadData();
+                }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                });
-            } finally {
+                }});
+            }} finally {{
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }
-        }
+            }}
+        }}
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {
+        async function copyLink() {{
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }
+        }}
 
-        async function withdraw() {
+        async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }
-            const response = await fetch('/api/withdraw/' + userId, {
+            }}
+            const response = await fetch('/api/withdraw/' + userId, {{
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
-            });
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{amount, binance_id: binanceId}})
+            }});
             const data = await response.json();
-            if (data.success) {
+            if (data.success) {{
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
-                await loadData();
-            } else {
+                loadData();
+            }} else {{
                 tg.showAlert(data.message || 'Withdraw failed');
-            }
-        }
+            }}
+        }}
 
-        function showPage(page) {
+        function showPage(page) {{
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }
+        }}
 
+        // Load initial data
         loadData();
     </script>
 </body>
@@ -384,7 +371,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            await get_or_create_user(invited_by)
             await add_invited_friend(invited_by)
         except ValueError:
             pass
