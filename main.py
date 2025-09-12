@@ -19,10 +19,11 @@ PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.herokuapp.com
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 MONETAG_ZONE = "9859391"
-USERS_FILE = "/tmp/users.json"
+USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
 
+# Initialize JSON file
 async def init_json():
     try:
         async with aiofiles.open(USERS_FILE, mode='a') as f:
@@ -36,6 +37,7 @@ async def init_json():
     except Exception as e:
         print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
 
+# User data functions (adapted from working bot's simple logic)
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
     users = {}
     try:
@@ -58,7 +60,6 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             "invited_friends": 0,
             "binance_id": None,
             "invited_by": invited_by,
-            "has_referral_processed": False,  # New flag to track referral processing
             "created_at": datetime.now().isoformat()
         }
         try:
@@ -159,6 +160,7 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
         print(f"Error processing withdrawal for user {user_id}: {e}")
     return False
 
+# Self-ping task
 async def self_ping():
     if not BASE_URL:
         print("BASE_URL not set, skipping self-ping")
@@ -172,6 +174,7 @@ async def self_ping():
                 print(f"Self-ping error: {e}")
             await asyncio.sleep(240)  # 4 minutes
 
+# API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = await get_or_create_user(user_id)
@@ -195,6 +198,7 @@ async def watch_ad(user_id: int):
         bonus_points = ad_points * 0.05  # 5% of friend's earnings
         await update_points(user["invited_by"], bonus_points)
         print(f"Referral bonus of {bonus_points} $DOGS awarded to referrer {user['invited_by']}")
+    
     user = await get_or_create_user(user_id)
     return {
         "success": True,
@@ -213,6 +217,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
+# Mini App HTML with Monetag SDK (unchanged)
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -369,6 +374,7 @@ async def mini_app():
             event.target.classList.add('active');
         }}
 
+        // Load initial data
         loadData();
     </script>
 </body>
@@ -376,70 +382,38 @@ async def mini_app():
     """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
 
+# Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # Handle referral (exact logic from your working bot)
     args = context.args
-    print(f"Processing /start for user {user_id} with args: {args}")
-    
     invited_by = None
-    referral_processed = False
-    if args and len(args) > 0 and args[0].startswith("ref"):
+    if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            print(f"Parsed invited_by: {invited_by}")
-            if invited_by != user_id:  # Prevent self-referral
-                user = await get_or_create_user(user_id)
-                print(f"User data: {user}")
-                if user["invited_by"] == invited_by and not user["has_referral_processed"]:
-                    # Process referral only once for this user
-                    if await add_invited_friend(invited_by):
-                        # Mark as processed
-                        users = {}
-                        async with aiofiles.open(USERS_FILE, mode='r') as f:
-                            users = json.loads(await f.read())
-                        users[str(user_id)]["has_referral_processed"] = True
-                        async with aiofiles.open(USERS_FILE, mode='w') as f:
-                            await f.write(json.dumps(users, indent=2))
-                        referral_processed = True
-                        print(f"Referral processed: user {user_id} invited by {invited_by}")
-                        # Notify referrer
-                        try:
-                            await application.bot.send_message(
-                                chat_id=invited_by,
-                                text=f"You earned a new referral! +1 friend (User {user_id}). Check your Mini App for updated count."
-                            )
-                        except Exception as e:
-                            print(f"Failed to notify referrer {invited_by}: {e}")
-                    else:
-                        print(f"Failed to increment invited_friends for referrer {invited_by}")
-                else:
-                    print(f"Referral skipped: already processed or mismatched invited_by for user {user_id}")
-            else:
-                print(f"Self-referral attempt by user {user_id}")
-                await update.message.reply_text("You cannot refer yourself!")
-        except (ValueError, TypeError) as e:
-            print(f"Invalid referral ID in args: {args[0]}, error: {e}")
-            await update.message.reply_text("Invalid referral link!")
+            await add_invited_friend(invited_by)
+            print(f"Referral processed: incremented invited_friends for {invited_by}")
+            # Notify referrer
+            try:
+                await application.bot.send_message(
+                    chat_id=invited_by,
+                    text=f"You earned a new referral! +1 friend (User {update.effective_user.id}). Check your Mini App for updated count."
+                )
+            except Exception as e:
+                print(f"Failed to notify referrer {invited_by}: {e}")
+        except ValueError:
+            print(f"Invalid ref value: {args[0]}")
+            pass
     
-    # Ensure user exists
-    await get_or_create_user(user_id, invited_by)
+    await get_or_create_user(update.effective_user.id, invited_by)
     
     # Welcome message
-    if referral_processed:
-        welcome_message = (
-            f"Welcome to DOGS Earn App, User {user_id}!\n"
-            f"You joined via referral from {invited_by}!\n"
-            f"Invite friends: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
-            "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
-        )
-    else:
-        welcome_message = (
-            f"Welcome to DOGS Earn App, User {user_id}!\n"
-            f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
-            "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
-        )
+    welcome_message = (
+        f"Welcome to DOGS Earn App, User {update.effective_user.id}!\n"
+        f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{update.effective_user.id}\n"
+        "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
+    )
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_message, reply_markup=reply_markup)
@@ -448,7 +422,7 @@ application.add_handler(CommandHandler("start", start))
 
 async def main():
     await init_json()
-    asyncio.create_task(self_ping())
+    asyncio.create_task(self_ping())  # Start self-ping task
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
