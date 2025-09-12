@@ -153,20 +153,6 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
         print(f"Error processing withdrawal for user {user_id}: {e}")
     return False
 
-# Self-ping task
-async def self_ping():
-    if not BASE_URL:
-        print("BASE_URL not set, skipping self-ping")
-        return
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                async with session.get(f"{BASE_URL}/") as response:
-                    print(f"Self-ping status: {response.status}")
-            except Exception as e:
-                print(f"Self-ping error: {e}")
-            await asyncio.sleep(240)  # 4 minutes
-
 # API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
@@ -383,7 +369,6 @@ application.add_handler(CommandHandler("start", start))
 
 async def main():
     await init_json()
-    asyncio.create_task(self_ping())  # Start self-ping task
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
