@@ -117,10 +117,13 @@ async def add_invited_friend(user_id: int):
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
             print(f"Incremented invited_friends for user {user_id}: {users[user_id_str]['invited_friends']}")
+            return True
         else:
             print(f"User {user_id} not found in JSON for invited_friends update")
+            return False
     except Exception as e:
         print(f"Error adding invited friend for user {user_id}: {e}")
+        return False
 
 async def set_binance_id(user_id: int, binance_id: str):
     try:
@@ -379,27 +382,44 @@ async def mini_app():
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     args = context.args
     invited_by = None
-    print(f"Processing /start for user {update.effective_user.id} with args: {args}")
+    print(f"Processing /start for user {user_id} with args: {args}")
     
+    # Check for referral
     if args and len(args) > 0 and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            # Verify referrer exists before incrementing
-            referrer = await get_or_create_user(invited_by)
-            if referrer:
-                await add_invited_friend(invited_by)
-                print(f"Referral processed: {update.effective_user.id} invited by {invited_by}")
+            # Check if user is already registered to prevent duplicate referrals
+            existing_user = await get_or_create_user(user_id)
+            if existing_user.get("created_at") == datetime.now().isoformat():
+                # New user, process referral
+                referrer = await get_or_create_user(invited_by)
+                if referrer and invited_by != user_id:  # Prevent self-referral
+                    if await add_invited_friend(invited_by):
+                        print(f"Referral processed: user {user_id} invited by {invited_by}")
+                    else:
+                        print(f"Failed to increment invited_friends for referrer {invited_by}")
+                else:
+                    print(f"Invalid or non-existent referrer {invited_by} or self-referral")
             else:
-                print(f"Referrer {invited_by} does not exist")
+                print(f"User {user_id} already registered, skipping referral")
         except (ValueError, TypeError) as e:
             print(f"Invalid referral ID in args: {args[0]}, error: {e}")
     
-    await get_or_create_user(update.effective_user.id, invited_by)
+    # Create or get user
+    await get_or_create_user(user_id, invited_by)
+    
+    # Send welcome message
+    welcome_message = (
+        f"Welcome to DOGS Earn App, User {user_id}!\n"
+        f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
+        "Open the Mini App to start earning $DOGS!"
+    )
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
 
