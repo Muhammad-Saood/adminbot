@@ -58,6 +58,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             "invited_friends": 0,
             "binance_id": None,
             "invited_by": invited_by,
+            "has_referral_processed": False,  # New flag to track referral processing
             "created_at": datetime.now().isoformat()
         }
         try:
@@ -66,6 +67,8 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             print(f"Created new user {user_id} with invited_by: {invited_by}")
         except Exception as e:
             print(f"Error writing new user to JSON: {e}")
+    else:
+        print(f"User {user_id} already exists")
     
     return users[user_id_str]
 
@@ -381,38 +384,62 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Processing /start for user {user_id} with args: {args}")
     
     invited_by = None
+    referral_processed = False
     if args and len(args) > 0 and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            existing_user = await get_or_create_user(user_id)
-            if existing_user.get("created_at") == datetime.now().isoformat():
-                if invited_by != user_id:
-                    referrer = await get_or_create_user(invited_by)
-                    if referrer:
-                        if await add_invited_friend(invited_by):
-                            print(f"Referral processed: user {user_id} invited by {invited_by}")
-                            await update.message.reply_text(f"Referral successful! You were invited by user {invited_by}.")
-                        else:
-                            print(f"Failed to increment invited_friends for referrer {invited_by}")
+            print(f"Parsed invited_by: {invited_by}")
+            if invited_by != user_id:  # Prevent self-referral
+                user = await get_or_create_user(user_id)
+                print(f"User data: {user}")
+                if user["invited_by"] == invited_by and not user["has_referral_processed"]:
+                    # Process referral only once for this user
+                    if await add_invited_friend(invited_by):
+                        # Mark as processed
+                        users = {}
+                        async with aiofiles.open(USERS_FILE, mode='r') as f:
+                            users = json.loads(await f.read())
+                        users[str(user_id)]["has_referral_processed"] = True
+                        async with aiofiles.open(USERS_FILE, mode='w') as f:
+                            await f.write(json.dumps(users, indent=2))
+                        referral_processed = True
+                        print(f"Referral processed: user {user_id} invited by {invited_by}")
+                        # Notify referrer
+                        try:
+                            await application.bot.send_message(
+                                chat_id=invited_by,
+                                text=f"You earned a new referral! +1 friend (User {user_id}). Check your Mini App for updated count."
+                            )
+                        except Exception as e:
+                            print(f"Failed to notify referrer {invited_by}: {e}")
                     else:
-                        print(f"Referrer {invited_by} does not exist")
+                        print(f"Failed to increment invited_friends for referrer {invited_by}")
                 else:
-                    print(f"Self-referral attempt by user {user_id}")
-                    await update.message.reply_text("You cannot refer yourself!")
+                    print(f"Referral skipped: already processed or mismatched invited_by for user {user_id}")
             else:
-                print(f"User {user_id} already registered, skipping referral")
-                await update.message.reply_text("You are already registered!")
+                print(f"Self-referral attempt by user {user_id}")
+                await update.message.reply_text("You cannot refer yourself!")
         except (ValueError, TypeError) as e:
             print(f"Invalid referral ID in args: {args[0]}, error: {e}")
             await update.message.reply_text("Invalid referral link!")
     
+    # Ensure user exists
     await get_or_create_user(user_id, invited_by)
     
-    welcome_message = (
-        f"Welcome to DOGS Earn App, User {user_id}!\n"
-        f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
-        "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
-    )
+    # Welcome message
+    if referral_processed:
+        welcome_message = (
+            f"Welcome to DOGS Earn App, User {user_id}!\n"
+            f"You joined via referral from {invited_by}!\n"
+            f"Invite friends: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
+            "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
+        )
+    else:
+        welcome_message = (
+            f"Welcome to DOGS Earn App, User {user_id}!\n"
+            f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{user_id}\n"
+            "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
+        )
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_message, reply_markup=reply_markup)
