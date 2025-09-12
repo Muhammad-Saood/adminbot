@@ -37,7 +37,7 @@ async def init_json():
             if not content.strip():
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps({}))
-    except Exception as e:
+    except Exception:
         pass  # Silent initialization
 
 # User data functions
@@ -50,7 +50,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
                 users = json.loads(content)
     except FileNotFoundError:
         pass  # Silent file creation
-    except Exception as e:
+    except Exception:
         pass  # Silent error handling
     
     user_id_str = str(user_id)
@@ -69,7 +69,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
         try:
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-        except Exception as e:
+        except Exception:
             pass  # Silent write
     return users[user_id_str], is_new
 
@@ -83,7 +83,7 @@ async def update_points(user_id: int, points: float):
             users[user_id_str]["points"] += points
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception as e:
+    except Exception:
         pass  # Silent update
 
 async def update_daily_ads(user_id: int, ads_watched: int):
@@ -101,7 +101,7 @@ async def update_daily_ads(user_id: int, ads_watched: int):
                 users[user_id_str]["last_ad_date"] = today
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception as e:
+    except Exception:
         pass  # Silent update
 
 async def add_invited_friend(user_id: int):
@@ -116,7 +116,7 @@ async def add_invited_friend(user_id: int):
                 await f.write(json.dumps(users, indent=2))
             return True
         return False
-    except Exception as e:
+    except Exception:
         return False  # Silent error
 
 async def set_binance_id(user_id: int, binance_id: str):
@@ -129,7 +129,7 @@ async def set_binance_id(user_id: int, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-    except Exception as e:
+    except Exception:
         pass  # Silent update
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str):
@@ -148,7 +148,7 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
                 text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
             )
             return True
-    except Exception as e:
+    except Exception:
         pass
     return False
 
@@ -284,7 +284,6 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        // Referral link is generated for the current user below
         async function loadData() {
             try {
                 const response = await fetch('/api/user/' + userId);
@@ -309,7 +308,7 @@ async def mini_app():
             watchBtn.textContent = 'Watching...';
             try {
                 await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
+                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                     const data = await response.json();
                     if (data.success) {
                         document.getElementById('balance').textContent = data.points.toFixed(2);
@@ -320,7 +319,7 @@ async def mini_app():
                     } else {
                         tg.showAlert('Error watching ad');
                     }
-                    loadData();
+                    await loadData();
                 }).catch(error => {
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
@@ -356,7 +355,7 @@ async def mini_app():
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
-                loadData();
+                await loadData();
             } else {
                 tg.showAlert(data.message || 'Withdraw failed');
             }
