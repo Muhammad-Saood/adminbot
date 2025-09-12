@@ -51,7 +51,8 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
         print(f"Error reading users.json: {e}")
     
     user_id_str = str(user_id)
-    if user_id_str not in users:
+    is_new = user_id_str not in users
+    if is_new:
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
@@ -71,7 +72,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
     else:
         print(f"User {user_id} already exists")
     
-    return users[user_id_str]
+    return users[user_id_str], is_new
 
 async def update_points(user_id: int, points: float):
     try:
@@ -177,48 +178,16 @@ async def self_ping():
 # API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     return {
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"]
     }
 
-@app.post("/api/init_referral/{user_id}")
-async def init_referral(user_id: int, request: Request):
-    data = await request.json()
-    start_param = data.get("start_param")
-    if start_param and start_param.startswith("ref"):
-        try:
-            invited_by = int(start_param.replace("ref", ""))
-            user = await get_or_create_user(user_id)
-            if user["invited_by"] is None:  # Only set if not already set
-                # Update user with invited_by
-                async with aiofiles.open(USERS_FILE, mode='r') as f:
-                    users = json.loads(await f.read())
-                users[str(user_id)]["invited_by"] = invited_by
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps(users, indent=2))
-                print(f"Set invited_by {invited_by} for user {user_id} via start_param")
-                # Increment referrer's invited_friends if not already done
-                await add_invited_friend(invited_by)
-                print(f"Incremented invited_friends for {invited_by} via start_param")
-                # Notify referrer
-                try:
-                    await application.bot.send_message(
-                        chat_id=invited_by,
-                        text=f"You earned a new referral! +1 friend (User {user_id}). Check your Mini App for updated count."
-                    )
-                except Exception as e:
-                    print(f"Failed to notify referrer {invited_by}: {e}")
-                return {"success": True, "invited_by": invited_by}
-        except ValueError:
-            print(f"Invalid start_param ref value: {start_param}")
-    return {"success": False}
-
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     today = datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         return {"success": False, "limit_reached": True}
@@ -231,7 +200,7 @@ async def watch_ad(user_id: int):
         await update_points(user["invited_by"], bonus_points)
         print(f"Referral bonus of {bonus_points} $DOGS awarded to referrer {user['invited_by']}")
     
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     return {
         "success": True,
         "points": user["points"],
@@ -249,7 +218,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML with Monetag SDK (updated JS to handle start_param)
+# Mini App HTML with Monetag SDK
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -320,38 +289,14 @@ async def mini_app():
         tg.ready();
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
-        const startParam = tg.initDataUnsafe.startParam;
 
         async function loadData() {{
-            // Process referral from start_param if present
-            if (startParam && startParam.startsWith('ref')) {{
-                try {{
-                    const response = await fetch(`/api/init_referral/${{userId}}`, {{
-                        method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{start_param: startParam}})
-                    }});
-                    const data = await response.json();
-                    if (data.success) {{
-                        tg.showAlert(`Referral set! Invited by ${{data.invited_by}}`);
-                    }}
-                }} catch (error) {{
-                    console.error('Error processing referral:', error);
-                }}
-            }}
-            
-            // Load user data
-            try {{
-                const response = await fetch('/api/user/' + userId);
-                const data = await response.json();
-                document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-                document.getElementById('invited-count').textContent = data.invited_friends;
-                document.getElementById('invite-link').textContent = startParam ? 'https://t.me/jdsrhukds_bot?start=' + startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
-            }} catch (error) {{
-                console.error('Error loading user data:', error);
-                tg.showAlert('Failed to load user data. Please try again.');
-            }}
+            const response = await fetch('/api/user/' + userId);
+            const data = await response.json();
+            document.getElementById('balance').textContent = data.points.toFixed(2);
+            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+            document.getElementById('invited-count').textContent = data.invited_friends;
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
         }}
 
         async function watchAd() {{
@@ -371,7 +316,7 @@ async def mini_app():
                     }} else {{
                         tg.showAlert('Error watching ad');
                     }}
-                    await loadData();
+                    loadData();
                 }}).catch(error => {{
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
@@ -397,24 +342,19 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }}
-            try {{
-                const response = await fetch('/api/withdraw/' + userId, {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{amount, binance_id: binanceId}})
-                }});
-                const data = await response.json();
-                if (data.success) {{
-                    tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
-                    document.getElementById('amount').value = '';
-                    document.getElementById('binance-id').value = '';
-                    await loadData();
-                }} else {{
-                    tg.showAlert(data.message || 'Withdraw failed');
-                }}
-            }} catch (error) {{
-                console.error('Error processing withdrawal:', error);
-                tg.showAlert('Withdrawal failed. Please try again.');
+            const response = await fetch('/api/withdraw/' + userId, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{amount, binance_id: binanceId}})
+            }});
+            const data = await response.json();
+            if (data.success) {{
+                tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
+                document.getElementById('amount').value = '';
+                document.getElementById('binance-id').value = '';
+                loadData();
+            }} else {{
+                tg.showAlert(data.message || 'Withdraw failed');
             }}
         }}
 
@@ -437,43 +377,19 @@ async def mini_app():
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Handle referral (simple logic from your working bot)
+    # Handle referral
     args = context.args
     invited_by = None
-    start_param = None
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            await add_invited_friend(invited_by)
-            print(f"Referral processed in bot: incremented invited_friends for {invited_by}")
-            # Notify referrer
-            try:
-                await application.bot.send_message(
-                    chat_id=invited_by,
-                    text=f"You earned a new referral! +1 friend (User {update.effective_user.id}). Check your Mini App for updated count."
-                )
-            except Exception as e:
-                print(f"Failed to notify referrer {invited_by}: {e}")
-            start_param = args[0]  # Pass ref to mini app
+            add_invited_friend(invited_by)
         except ValueError:
-            print(f"Invalid ref value: {args[0]}")
             pass
-    
-    await get_or_create_user(update.effective_user.id, invited_by)
-    
-    # Welcome message
-    welcome_message = (
-        f"Welcome to DOGS Earn App, User {update.effective_user.id}!\n"
-        f"Invite friends using your referral link: https://t.me/jdsrhukds_bot?start=ref{update.effective_user.id}\n"
-        "Earn 5% of your friends' ad earnings! Open the Mini App to start earning $DOGS!"
-    )
-    # WebApp URL with start_param if present
-    web_app_url = f"{BASE_URL}/app"
-    if start_param:
-        web_app_url += f"?startapp={start_param}"
-    keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=web_app_url))]]
+    get_or_create_user(update.effective_user.id, invited_by)
+    keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+    await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
 
