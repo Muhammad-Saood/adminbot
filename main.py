@@ -1,14 +1,14 @@
-# main.py - Backend FastAPI server for Telegram Mini App with Monetag
 import os
+import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import uvicorn
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 load_dotenv()
@@ -21,12 +21,12 @@ DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
-ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
-MONETAG_ZONE = "9859391"  # Monetag data-zone
+ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")  # Your admin channel ID
+MONETAG_ZONE = "9859391"  # Your Monetag data-zone
 
 app = FastAPI()
 
-# ---------------- DATABASE ----------------
+# Database connection
 def get_db_connection():
     return psycopg2.connect(
         host=DATABASE_HOST,
@@ -37,6 +37,7 @@ def get_db_connection():
         cursor_factory=RealDictCursor
     )
 
+# Initialize database
 def init_db():
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -54,28 +55,27 @@ def init_db():
             """)
             conn.commit()
 
-def get_user_points(user_id: int) -> float:
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT points FROM users WHERE user_id = %s", (user_id,))
-            result = cur.fetchone()
-            return float(result["points"]) if result else 0.0
+# Call init_db at startup
+init_db()
 
-# ---------------- USER DATA ----------------
+# User data functions
 def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
             user = cur.fetchone()
             if not user:
-                cur.execute(
-                    "INSERT INTO users (user_id, invited_by) VALUES (%s, %s)",
-                    (user_id, invited_by)
-                )
+                cur.execute("INSERT INTO users (user_id, invited_by) VALUES (%s, %s)", (user_id, invited_by))
                 conn.commit()
-                return {"user_id": user_id, "points": 0.0, "daily_ads_watched": 0,
-                        "last_ad_date": None, "invited_friends": 0, "binance_id": None, "invited_by": invited_by}
+                return {"user_id": user_id, "points": 0.0, "daily_ads_watched": 0, "last_ad_date": None, "invited_friends": 0, "binance_id": None, "invited_by": invited_by}
             return dict(user)
+
+def get_user_points(user_id: int):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT points FROM users WHERE user_id = %s", (user_id,))
+            result = cur.fetchone()
+            return result["points"] if result else 0.0
 
 def update_points(user_id: int, points: float):
     with get_db_connection() as conn:
@@ -89,7 +89,7 @@ def update_daily_ads(user_id: int, ads_watched: int):
         with conn.cursor() as cur:
             cur.execute("SELECT last_ad_date FROM users WHERE user_id = %s", (user_id,))
             result = cur.fetchone()
-            if result and result["last_ad_date"] == today:
+            if result and result['last_ad_date'] == today:
                 cur.execute("UPDATE users SET daily_ads_watched = daily_ads_watched + %s WHERE user_id = %s", (ads_watched, user_id))
             else:
                 cur.execute("UPDATE users SET daily_ads_watched = %s, last_ad_date = %s WHERE user_id = %s", (ads_watched, today, user_id))
@@ -101,49 +101,53 @@ def add_invited_friend(user_id: int):
             cur.execute("UPDATE users SET invited_friends = invited_friends + 1 WHERE user_id = %s", (user_id,))
             conn.commit()
 
-def withdraw_points(user_id: int, amount: float, binance_id: str, app):
+def set_binance_id(user_id: int, binance_id: str):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET binance_id = %s WHERE user_id = %s", (binance_id, user_id))
+            conn.commit()
+
+def withdraw_points(user_id: int, amount: float, binance_id: str):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT points FROM users WHERE user_id = %s", (user_id,))
             result = cur.fetchone()
-            if result and result["points"] >= amount:
-                cur.execute(
-                    "UPDATE users SET points = points - %s, binance_id = %s WHERE user_id = %s",
-                    (amount, binance_id, user_id)
-                )
+            if result and result['points'] >= amount:
+                cur.execute("UPDATE users SET points = points - %s, binance_id = %s WHERE user_id = %s", (amount, binance_id, user_id))
                 conn.commit()
-                app.bot.send_message(
-                    chat_id=ADMIN_CHANNEL_ID,
-                    text=f"💸 Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
-                )
+                application.bot.send_message(chat_id=ADMIN_CHANNEL_ID, text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}")
                 return True
             return False
 
-# ---------------- API ROUTES ----------------
+# API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = get_or_create_user(user_id)
-    return {
-        "points": user["points"],
-        "daily_ads_watched": user["daily_ads_watched"],
-        "invited_friends": user["invited_friends"]
-    }
+    return {"points": user["points"], "daily_ads_watched": user["daily_ads_watched"], "invited_friends": user["invited_friends"]}
 
-@app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int):
-    user = get_or_create_user(user_id)
-    today = datetime.now().date()
-    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
-        return {"success": False, "limit_reached": True}
-    update_daily_ads(user_id, 1)
-    update_points(user_id, 20.0)
-    if user["invited_by"]:
-        update_points(user["invited_by"], 2.0)  # referral bonus
-    return {
-        "success": True,
-        "points": get_user_points(user_id),
-        "daily_ads_watched": user["daily_ads_watched"] + 1
-    }
+@app.get("/monetag/postback")
+async def monetag_postback(
+    ymid: str = None,
+    event: str = None,
+    zone_id: str = None,
+    request_var: str = None,
+    telegram_id: str = None,
+    estimated_price: str = None
+):
+    try:
+        user_id = int(ymid) if ymid else None
+        if user_id and event in ["impression", "click"] and zone_id == MONETAG_ZONE:
+            user = get_or_create_user(user_id)
+            today = datetime.now().date()
+            if not (user["last_ad_date"] == today and user["daily_ads_watched"] >= 30):
+                update_daily_ads(user_id, 1)
+                update_points(user_id, 20.0)  # Award 20 $DOGS
+                if user["invited_by"]:
+                    referrer_id = user["invited_by"]
+                    update_points(referrer_id, 2.0)  # 10% bonus
+    except ValueError:
+        pass
+    return {"status": "ok"}
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
@@ -152,14 +156,14 @@ async def withdraw(user_id: int, request: Request):
     binance_id = data["binance_id"]
     if amount < 2000 or not binance_id:
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
-    if withdraw_points(user_id, amount, binance_id, application):
+    if withdraw_points(user_id, amount, binance_id):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# ---------------- HTML MINI APP ----------------
+# Mini App HTML with Monetag postback and real-time updates
 @app.get("/app")
 async def mini_app():
-    html_content = f"""
+    html_content = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -167,129 +171,78 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 20px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
 </head>
-<body style="background:#222;color:white;font-family:Arial;padding:20px">
-    <h2>DOGS Earn</h2>
-    <p>ID: <span id="user-id"></span></p>
-    <p>Balance: <span id="balance">0.00</span> $DOGS</p>
-    <p>Daily Ads: <span id="daily-limit">0</span>/30</p>
-    <button id="watch-ad-btn">Watch Ad</button>
-
-    <h3>Invite</h3>
-    <p>Your Link: <span id="invite-link"></span></p>
-    <button onclick="copyLink()">Copy Link</button>
-    <p>Friends Invited: <span id="invited-count">0</span></p>
-
-    <h3>Withdraw</h3>
-    <input type="number" id="amount" placeholder="Enter amount (min 2000)">
-    <input type="text" id="binance-id" placeholder="Enter Binance ID">
-    <button onclick="withdraw()">Withdraw</button>
+<body>
+    <h1>Earn $DOGS</h1>
+    <p>Points: <span id="points">0</span></p>
+    <p>Daily Ads Watched: <span id="ads_watched">0</span></p>
+    <p>Invited Friends: <span id="invited_friends">0</span></p>
+    <button id="watch_ad">Watch Ad (+20 $DOGS)</button>
+    <button id="invite">Invite Friends (+2 $DOGS per friend)</button>
+    <button id="withdraw">Withdraw ($DOGS)</button>
+    <p id="status"></p>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        const user = tg.initDataUnsafe.user;
-        const userId = user ? user.id : 0;
-        document.getElementById("user-id").textContent = userId;
+        let userId = Telegram.WebApp.initDataUnsafe.user ? Telegram.WebApp.initDataUnsafe.user.id : null;
+        if (!userId) userId = Math.floor(Math.random() * 10000000000);
 
-        async function loadData() {{
-            const res = await fetch("/api/user/" + userId);
-            const data = await res.json();
-            document.getElementById("balance").textContent = Number(data.points).toFixed(2);
-            document.getElementById("daily-limit").textContent = data.daily_ads_watched + "/30";
-            document.getElementById("invited-count").textContent = data.invited_friends;
-            document.getElementById("invite-link").textContent = "https://t.me/your_bot?start=ref" + userId;
-        }}
+        async function updateUserData() {
+            const response = await fetch(`/api/user/${userId}`);
+            const data = await response.json();
+            document.getElementById("points").textContent = data.points.toFixed(2);
+            document.getElementById("ads_watched").textContent = data.daily_ads_watched;
+            document.getElementById("invited_friends").textContent = data.invited_friends;
+        }
 
-        async function watchAd() {{
-            const btn = document.getElementById("watch-ad-btn");
-            btn.disabled = true; btn.textContent = "Loading...";
-            const fn = window["show_{MONETAG_ZONE}"];
-            if (typeof fn === "function") {{
-                try {{
-                    await fn();
-                    const res = await fetch("/api/watch_ad/" + userId, {{method:"POST"}});
-                    const data = await res.json();
-                    if (data.success) {{
-                        tg.showAlert("Ad watched! +20 $DOGS");
-                    }} else if (data.limit_reached) {{
-                        tg.showAlert("Daily limit reached!");
-                    }} else {{
-                        tg.showAlert("Error watching ad");
-                    }}
-                    loadData();
-                }} catch(err) {{
-                    console.error(err);
-                    tg.showAlert("Ad failed to load");
-                }}
-            }} else {{
-                tg.showAlert("Ad service not ready, try later");
-            }}
-            btn.disabled = false; btn.textContent = "Watch Ad";
-        }}
-        document.getElementById("watch-ad-btn").addEventListener("click", watchAd);
+        document.getElementById("watch_ad").addEventListener("click", () => {
+            window.location.href = `https://ads.monetag.com/click/${MONETAG_ZONE}?ymid=${userId}&request_var=telegram_id=${userId}`;
+        });
 
-        async function copyLink() {{
-            const link = document.getElementById("invite-link").textContent;
-            await navigator.clipboard.writeText(link);
-            tg.showAlert("Invite link copied!");
-        }}
+        document.getElementById("invite").addEventListener("click", () => {
+            Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=${BASE_URL}/app?invited_by=${userId}`);
+        });
 
-        async function withdraw() {{
-            const amount = parseFloat(document.getElementById("amount").value);
-            const binanceId = document.getElementById("binance-id").value;
-            if (amount < 2000 || !binanceId) {{
-                tg.showAlert("Minimum 2000 $DOGS and Binance ID required!");
-                return;
-            }}
-            const res = await fetch("/api/withdraw/" + userId, {{
-                method: "POST",
-                headers: {{"Content-Type": "application/json"}},
-                body: JSON.stringify({{amount, binance_id: binanceId}})
-            }});
-            const data = await res.json();
-            if (data.success) {{
-                tg.showAlert("Withdraw request sent!");
-                document.getElementById("amount").value = "";
-                document.getElementById("binance-id").value = "";
-                loadData();
-            }} else {{
-                tg.showAlert(data.message || "Withdraw failed");
-            }}
-        }}
+        document.getElementById("withdraw").addEventListener("click", async () => {
+            const amount = prompt("Enter amount (min 2000 $DOGS):");
+            const binanceId = prompt("Enter your Binance ID:");
+            if (amount && binanceId) {
+                const response = await fetch(`/api/withdraw/${userId}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ amount: parseFloat(amount), binance_id: binanceId })
+                });
+                const result = await response.json();
+                document.getElementById("status").textContent = result.message || "Withdrawal requested!";
+                updateUserData();
+            }
+        });
 
-        loadData();
+        setInterval(updateUserData, 5000); // Update every 5 seconds
+        updateUserData();
     </script>
 </body>
 </html>
-    """
-    return HTMLResponse(html_content)
+"""
+    return HTMLResponse(content=html_content)
 
-# ---------------- TELEGRAM BOT ----------------
+# Telegram bot handlers
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    invited_by = None
-    if args and args[0].startswith("ref"):
-        try:
-            invited_by = int(args[0].replace("ref", ""))
-            add_invited_friend(invited_by)
-        except ValueError:
-            pass
-    get_or_create_user(update.effective_user.id, invited_by)
-    keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🚀 Launch the Mini App!", reply_markup=reply_markup)
+    user_id = update.effective_user.id
+    get_or_create_user(user_id)
+    await update.message.reply_text(
+        "Welcome to DOGS Earn App! Use the Mini App to earn $DOGS by watching ads and inviting friends.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open Mini App", web_app={"url": f"{BASE_URL}/app"})]])
+    )
 
 application.add_handler(CommandHandler("start", start))
 
-# ---------------- RUN SERVER ----------------
+# Run bot and server
 if __name__ == "__main__":
-    init_db()
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(application.initialize())
-    loop.create_task(application.start())
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
