@@ -1,4 +1,4 @@
-# main.py - Backend FastAPI server for Telegram Mini App with Monetag 
+# main.py - Backend FastAPI server for Telegram Mini App with Monetag postback
 import os
 import json
 import psycopg2
@@ -51,6 +51,7 @@ def init_db():
                     invited_friends INTEGER DEFAULT 0,
                     binance_id TEXT,
                     invited_by BIGINT DEFAULT NULL,
+                    referral_code TEXT UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -63,10 +64,20 @@ def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
             user = cur.fetchone()
             if not user:
-                cur.execute("INSERT INTO users (user_id, invited_by) VALUES (%s, %s)", (user_id, invited_by))
+                referral_code = f"ref{user_id}"
+                cur.execute("INSERT INTO users (user_id, invited_by, referral_code) VALUES (%s, %s, %s)", (user_id, invited_by, referral_code))
                 conn.commit()
-                return {"user_id": user_id, "points": 0.0, "daily_ads_watched": 0, "last_ad_date": None, "invited_friends": 0, "binance_id": None, "invited_by": invited_by}
+                if invited_by:
+                    add_invited_friend(invited_by)
+                return {"user_id": user_id, "points": 0.0, "daily_ads_watched": 0, "last_ad_date": None, "invited_friends": 0, "binance_id": None, "invited_by": invited_by, "referral_code": referral_code}
             return dict(user)
+
+def get_user_points(user_id: int):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT points FROM users WHERE user_id = %s", (user_id,))
+            result = cur.fetchone()
+            return result["points"] if result else 0.0
 
 def update_points(user_id: int, points: float):
     with get_db_connection() as conn:
@@ -106,7 +117,6 @@ def withdraw_points(user_id: int, amount: float, binance_id: str):
             if result and result['points'] >= amount:
                 cur.execute("UPDATE users SET points = points - %s, binance_id = %s WHERE user_id = %s", (amount, binance_id, user_id))
                 conn.commit()
-                # Notify admin
                 application.bot.send_message(chat_id=ADMIN_CHANNEL_ID, text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}")
                 return True
             return False
@@ -115,21 +125,32 @@ def withdraw_points(user_id: int, amount: float, binance_id: str):
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = get_or_create_user(user_id)
-    return {"points": user["points"], "daily_ads_watched": user["daily_ads_watched"], "invited_friends": user["invited_friends"]}
+    return {"points": user["points"], "daily_ads_watched": user["daily_ads_watched"], "invited_friends": user["invited_friends"], "referral_code": user["referral_code"]}
 
-@app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int):
-    user = get_or_create_user(user_id)
-    today = datetime.now().date()
-    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
-        return {"success": False, "limit_reached": True}
-    # Award points and handle referral bonus
-    update_daily_ads(user_id, 1)
-    update_points(user_id, 20.0)
-    if user["invited_by"]:
-        referrer_id = user["invited_by"]
-        update_points(referrer_id, 2.0)  # 10% of 20 $DOGS
-    return {"success": True, "points": get_user_points(user_id), "daily_ads_watched": user["daily_ads_watched"] + 1}
+@app.get("/monetag/postback")
+async def monetag_postback(
+    ymid: str = None,
+    event: str = None,
+    zone_id: str = None,
+    request_var: str = None,
+    telegram_id: str = None,
+    estimated_price: str = None
+):
+    try:
+        user_id = int(ymid) if ymid else None
+        if user_id and event in ["impression", "click"] and zone_id == MONETAG_ZONE:
+            user = get_or_create_user(user_id)
+            today = datetime.now().date()
+            if not (user["last_ad_date"] == today and user["daily_ads_watched"] >= 30):
+                update_daily_ads(user_id, 1)
+                update_points(user_id, 20.0)  # Award 20 $DOGS
+                if user["invited_by"]:
+                    referrer_id = user["invited_by"]
+                    referrer_earnings = 0.05 * 20.0  # 5% of 20 $DOGS
+                    update_points(referrer_id, referrer_earnings)
+    except ValueError:
+        pass
+    return {"status": "ok"}
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
@@ -142,10 +163,10 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML with Monetag SDK
+# Mini App HTML with Monetag postback and real-time updates
 @app.get("/app")
 async def mini_app():
-    html_content = f"""
+    html_content = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -153,20 +174,20 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <script src="//libtl.com/sdk.js" data-zone="9859391" data-sdk="show_9859391"></script>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-        .nav {{ position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }}
-        .nav-btn {{ flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }}
-        .nav-btn.active {{ background: rgba(255,255,255,0.2); }}
-        .page {{ display: none; min-height: 100vh; }}
-        .page.active {{ display: block; }}
-        .header {{ text-align: center; margin: 20px 0; }}
-        .ad-panel {{ background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }}
-        .watch-btn {{ background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }}
-        .input {{ padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }}
-        .withdraw-btn {{ background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
-        .copy-btn {{ background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }}
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }
+        .nav-btn { flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }
+        .nav-btn.active { background: rgba(255,255,255,0.2); }
+        .page { display: none; min-height: 100vh; }
+        .page.active { display: block; }
+        .header { text-align: center; margin: 20px 0; }
+        .ad-panel { background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }
+        .watch-btn { background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        .input { padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }
+        .withdraw-btn { background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .copy-btn { background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -214,100 +235,97 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {{
+        async function loadData() {
             const response = await fetch('/api/user/' + userId);
             const data = await response.json();
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
-        }}
+            document.getElementById('invite-link').textContent = 'https://t.me/jdsrhukds_bot?start=' + data.referral_code;
+        }
 
-        async function watchAd() {{
+        async function watchAd() {
             const watchBtn = document.getElementById('watch-ad-btn');
+            if (watchBtn.disabled) return;
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {{
-                await show_{MONETAG_ZONE}().then(async () => {{
-                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
-                    const data = await response.json();
-                    if (data.success) {{
-                        document.getElementById('balance').textContent = data.points.toFixed(2);
-                        document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-                        tg.showAlert('Ad watched! +20 $DOGS');
-                    }} else if (data.limit_reached) {{
-                        tg.showAlert('Daily limit reached!');
-                    }} else {{
-                        tg.showAlert('Error watching ad');
-                    }}
-                    loadData();
-                }}).catch(error => {{
+
+            try {
+                await show_9859391({ ymid: userId }).then(() => {
+                    tg.showAlert('Ad started! Waiting for confirmation...');
+                }).catch(error => {
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag ad error:', error);
-                }});
-            }} finally {{
+                });
+            } catch (e) {
+                tg.showAlert('Ad issue detected');
+            }
+
+            setTimeout(() => {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }}
-        }}
+            }, 2000);
+        }
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {{
+        async function copyLink() {
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }}
+        }
 
-        async function withdraw() {{
+        async function withdraw() {
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {{
+            if (amount < 2000 || !binance_id) {
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }}
-            const response = await fetch('/api/withdraw/' + userId, {{
+            }
+            const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{amount, binance_id: binanceId}})
-            }});
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({amount, binance_id: binanceId})
+            });
             const data = await response.json();
-            if (data.success) {{
+            if (data.success) {
                 tg.showAlert('Withdraw successful! Credited to Binance within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
                 loadData();
-            }} else {{
+            } else {
                 tg.showAlert(data.message || 'Withdraw failed');
-            }}
-        }}
+            }
+        }
 
-        function showPage(page) {{
+        function showPage(page) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }}
+        }
 
-        // Load initial data
-        loadData();
+        // Real-time polling with immediate update
+        function updateUI() {
+            loadData();
+        }
+        setInterval(updateUI, 5000); // Poll every 5 seconds
+        updateUI(); // Initial load
     </script>
 </body>
 </html>
     """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
+    return HTMLResponse(html_content)
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Handle referral
     args = context.args
     invited_by = None
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            add_invited_friend(invited_by)
         except ValueError:
             pass
     get_or_create_user(update.effective_user.id, invited_by)
@@ -316,3 +334,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
+
+# Run the application
+if __name__ == "__main__":
+    init_db()
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
