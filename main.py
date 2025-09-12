@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -23,7 +24,10 @@ USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
 
-# Initialize JSON file
+# Mount static files directory to serve favicon.ico
+app.mount("/static", StaticFiles(directory="static"), name="static")  # Create a 'static' folder with favicon.ico
+
+# Initialize JSON file silently
 async def init_json():
     try:
         async with aiofiles.open(USERS_FILE, mode='a') as f:
@@ -33,9 +37,8 @@ async def init_json():
             if not content.strip():
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps({}))
-        print(f"JSON storage initialized at {USERS_FILE}")
     except Exception as e:
-        print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
+        pass  # Silent initialization
 
 # User data functions
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
@@ -46,9 +49,9 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             if content.strip():
                 users = json.loads(content)
     except FileNotFoundError:
-        print(f"users.json not found, creating new: {USERS_FILE}")
+        pass  # Silent file creation
     except Exception as e:
-        print(f"Error reading users.json: {e}")
+        pass  # Silent error handling
     
     user_id_str = str(user_id)
     is_new = user_id_str not in users
@@ -66,12 +69,8 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
         try:
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Created new user {user_id} with invited_by: {invited_by}")
         except Exception as e:
-            print(f"Error writing new user to JSON: {e}")
-    else:
-        print(f"User {user_id} already exists")
-    
+            pass  # Silent write
     return users[user_id_str], is_new
 
 async def update_points(user_id: int, points: float):
@@ -84,9 +83,8 @@ async def update_points(user_id: int, points: float):
             users[user_id_str]["points"] += points
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Updated points for user {user_id}: +{points}")
     except Exception as e:
-        print(f"Error updating points for user {user_id}: {e}")
+        pass  # Silent update
 
 async def update_daily_ads(user_id: int, ads_watched: int):
     today = datetime.now().date().isoformat()
@@ -103,9 +101,8 @@ async def update_daily_ads(user_id: int, ads_watched: int):
                 users[user_id_str]["last_ad_date"] = today
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Updated daily ads for user {user_id}: {ads_watched}")
     except Exception as e:
-        print(f"Error updating daily ads for user {user_id}: {e}")
+        pass  # Silent update
 
 async def add_invited_friend(user_id: int):
     try:
@@ -117,14 +114,10 @@ async def add_invited_friend(user_id: int):
             users[user_id_str]["invited_friends"] += 1
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Incremented invited_friends for user {user_id}: {users[user_id_str]['invited_friends']}")
             return True
-        else:
-            print(f"User {user_id} not found in JSON for invited_friends update")
-            return False
-    except Exception as e:
-        print(f"Error adding invited friend for user {user_id}: {e}")
         return False
+    except Exception as e:
+        return False  # Silent error
 
 async def set_binance_id(user_id: int, binance_id: str):
     try:
@@ -136,9 +129,8 @@ async def set_binance_id(user_id: int, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            print(f"Set binance_id for user {user_id}")
     except Exception as e:
-        print(f"Error setting binance_id for user {user_id}: {e}")
+        pass  # Silent update
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str):
     try:
@@ -155,27 +147,29 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
                 chat_id=ADMIN_CHANNEL_ID,
                 text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
             )
-            print(f"Withdrawal processed for user {user_id}: {amount} $DOGS")
             return True
     except Exception as e:
-        print(f"Error processing withdrawal for user {user_id}: {e}")
+        pass
     return False
 
 # Self-ping task
 async def self_ping():
     if not BASE_URL:
-        print("BASE_URL not set, skipping self-ping")
         return
     async with aiohttp.ClientSession() as session:
         while True:
             try:
                 async with session.get(f"{BASE_URL}/") as response:
-                    print(f"Self-ping status: {response.status}")
-            except Exception as e:
-                print(f"Self-ping error: {e}")
+                    pass  # Silent ping
+            except Exception:
+                pass  # Silent error
             await asyncio.sleep(240)  # 4 minutes
 
 # API endpoints for Mini App
+@app.get("/")
+async def root():
+    return {"status": "DOGS Earn App is running!"}
+
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user, _ = await get_or_create_user(user_id)
@@ -198,7 +192,6 @@ async def watch_ad(user_id: int):
     if user.get("invited_by"):
         bonus_points = ad_points * 0.05  # 5% of friend's earnings
         await update_points(user["invited_by"], bonus_points)
-        print(f"Referral bonus of {bonus_points} $DOGS awarded to referrer {user['invited_by']}")
     
     user, _ = await get_or_create_user(user_id)
     return {
@@ -228,6 +221,7 @@ async def mini_app():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <style>
@@ -374,7 +368,6 @@ async def mini_app():
             event.target.classList.add('active');
         }}
 
-        // Load initial data
         loadData();
     </script>
 </body>
@@ -386,13 +379,11 @@ async def mini_app():
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Handle referral
     args = context.args
     invited_by = None
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            # Ensure referrer exists first
             await get_or_create_user(invited_by)
             await add_invited_friend(invited_by)
         except ValueError:
