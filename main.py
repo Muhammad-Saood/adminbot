@@ -1,4 +1,4 @@
-check given code below and tell me why referral not shows in mini app  "import os
+import os
 import json
 import aiofiles
 import aiohttp
@@ -291,12 +291,21 @@ async def mini_app():
         document.getElementById('user-id').textContent = userId;
 
         async function loadData() {{
-            const response = await fetch('/api/user/' + userId);
-            const data = await response.json();
-            document.getElementById('balance').textContent = data.points.toFixed(2);
-            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-            document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+            try {{
+                const response = await fetch('/api/user/' + userId);
+                if (!response.ok) {{
+                    throw new Error('Failed to load data');
+                }}
+                const data = await response.json();
+                document.getElementById('balance').textContent = data.points.toFixed(2);
+                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+                document.getElementById('invited-count').textContent = data.invited_friends;
+                const myRefParam = 'ref' + userId;
+                document.getElementById('invite-link').textContent = 'https://t.me/jdsrhukds_bot?start=' + myRefParam;
+            }} catch (error) {{
+                tg.showAlert('Failed to load data: ' + error.message);
+                console.error('Load data error:', error);
+            }}
         }}
 
         async function watchAd() {{
@@ -383,10 +392,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            add_invited_friend(invited_by)
+            # Ensure referrer exists first
+            await get_or_create_user(invited_by)
+            await add_invited_friend(invited_by)
         except ValueError:
             pass
-    get_or_create_user(update.effective_user.id, invited_by)
+    await get_or_create_user(update.effective_user.id, invited_by)
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
@@ -402,4 +413,4 @@ async def main():
     uvicorn.run(app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
-    asyncio.run(main())"
+    asyncio.run(main())
