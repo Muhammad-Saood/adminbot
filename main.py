@@ -16,30 +16,43 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", "8000"))
-BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
+BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.herokuapp.com
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 MONETAG_ZONE = "9859391"
-USERS_FILE = "users.json"
+USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
 
-# Initialize JSON file
+# Initialize JSON file (runs on startup, but not critical if fails)
 async def init_json():
     try:
+        # Touch the file to create if needed
         async with aiofiles.open(USERS_FILE, mode='a') as f:
             pass
+        # Check and initialize empty dict if missing content
         async with aiofiles.open(USERS_FILE, mode='r') as f:
             content = await f.read()
-            if not content:
+            if not content.strip():
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps({}))
+        print(f"JSON storage initialized at {USERS_FILE}")
     except Exception as e:
-        print(f"Error initializing JSON file: {e}")
+        print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
 
 # User data functions
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read() or "{}")
+    users = {}
+    file_exists = False
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            content = await f.read()
+            if content.strip():
+                users = json.loads(content)
+                file_exists = True
+    except FileNotFoundError:
+        print(f"users.json not found, creating new: {USERS_FILE}")
+    except Exception as e:
+        print(f"Error reading users.json: {e}")
     
     user_id_str = str(user_id)
     if user_id_str not in users:
@@ -53,80 +66,102 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
             "invited_by": invited_by,
             "created_at": datetime.now().isoformat()
         }
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+        try:
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+            print(f"Created new user {user_id} in JSON")
+        except Exception as e:
+            print(f"Error writing new user to JSON: {e}")
     
     return users[user_id_str]
 
 async def update_points(user_id: int, points: float):
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read())
-    
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["points"] += points
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            users = json.loads(await f.read())
+        
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            users[user_id_str]["points"] += points
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+    except Exception as e:
+        print(f"Error updating points for user {user_id}: {e}")
 
 async def update_daily_ads(user_id: int, ads_watched: int):
     today = datetime.now().date().isoformat()
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read())
-    
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        if users[user_id_str]["last_ad_date"] == today:
-            users[user_id_str]["daily_ads_watched"] += ads_watched
-        else:
-            users[user_id_str]["daily_ads_watched"] = ads_watched
-            users[user_id_str]["last_ad_date"] = today
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            users = json.loads(await f.read())
+        
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            if users[user_id_str]["last_ad_date"] == today:
+                users[user_id_str]["daily_ads_watched"] += ads_watched
+            else:
+                users[user_id_str]["daily_ads_watched"] = ads_watched
+                users[user_id_str]["last_ad_date"] = today
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+    except Exception as e:
+        print(f"Error updating daily ads for user {user_id}: {e}")
 
 async def add_invited_friend(user_id: int):
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read())
-    
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["invited_friends"] += 1
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            users = json.loads(await f.read())
+        
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            users[user_id_str]["invited_friends"] += 1
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+    except Exception as e:
+        print(f"Error adding invited friend for user {user_id}: {e}")
 
 async def set_binance_id(user_id: int, binance_id: str):
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read())
-    
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["binance_id"] = binance_id
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            users = json.loads(await f.read())
+        
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            users[user_id_str]["binance_id"] = binance_id
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+    except Exception as e:
+        print(f"Error setting binance_id for user {user_id}: {e}")
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str):
-    async with aiofiles.open(USERS_FILE, mode='r') as f:
-        users = json.loads(await f.read())
-    
-    user_id_str = str(user_id)
-    if user_id_str in users and users[user_id_str]["points"] >= amount:
-        users[user_id_str]["points"] -= amount
-        users[user_id_str]["binance_id"] = binance_id
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
-        # Notify admin
-        await application.bot.send_message(
-            chat_id=ADMIN_CHANNEL_ID,
-            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
-        )
-        return True
+    try:
+        async with aiofiles.open(USERS_FILE, mode='r') as f:
+            users = json.loads(await f.read())
+        
+        user_id_str = str(user_id)
+        if user_id_str in users and users[user_id_str]["points"] >= amount:
+            users[user_id_str]["points"] -= amount
+            users[user_id_str]["binance_id"] = binance_id
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+            # Notify admin
+            await application.bot.send_message(
+                chat_id=ADMIN_CHANNEL_ID,
+                text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+            )
+            return True
+    except Exception as e:
+        print(f"Error processing withdrawal for user {user_id}: {e}")
     return False
 
 # Self-ping task
 async def self_ping():
+    if not BASE_URL:
+        print("BASE_URL not set, skipping self-ping")
+        return
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                async with session.get(BASE_URL) as response:
+                async with session.get(f"{BASE_URL}/") as response:
                     print(f"Self-ping status: {response.status}")
             except Exception as e:
                 print(f"Self-ping error: {e}")
@@ -151,7 +186,7 @@ async def watch_ad(user_id: int):
     
     await update_daily_ads(user_id, 1)
     await update_points(user_id, 20.0)
-    if user["invited_by"]:
+    if user.get("invited_by"):
         await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
     
     user = await get_or_create_user(user_id)
