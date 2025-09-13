@@ -196,7 +196,7 @@ async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
-    if amount < 2000 or not binance_id:
+    if amount < 2 or not binance_id:
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
     if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
@@ -326,7 +326,7 @@ async def mini_app():
         async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {{
+            if (amount < 2 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }}
