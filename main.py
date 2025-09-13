@@ -31,153 +31,132 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 json_lock = asyncio.Lock()
 
-# Validate token
-async def validate_token():
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN not set")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
-            if resp.status != 200:
-                raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
-    logger.info("BOT_TOKEN validated")
-
-# JSON utils
-async def init_json():
+# JSON utils (refactored for consistency)
+async def read_json() -> Dict[str, Any]:
     async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='a') as f:
-                pass
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                content = await f.read()
-                if not content.strip():
-                    async with aiofiles.open(USERS_FILE, mode='w') as f:
-                        await f.write(json.dumps({}))
-            logger.info(f"JSON initialized at {USERS_FILE}")
-        except Exception as e:
-            logger.error(f"JSON init failed: {e}")
-            raise
-
-async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
-    async with json_lock:
-        users = {}
         try:
             async with aiofiles.open(USERS_FILE, mode='r') as f:
                 content = await f.read()
                 if content.strip():
-                    users = json.loads(content)
+                    return json.loads(content)
+                return {}
         except FileNotFoundError:
-            logger.warning(f"users.json not found")
+            logger.warning(f"{USERS_FILE} not found")
+            return {}
         except Exception as e:
-            logger.error(f"Error reading users.json: {e}")
-        
-        user_id_str = str(user_id)
-        is_new = user_id_str not in users
-        if is_new:
-            users[user_id_str] = {
-                "user_id": user_id,
-                "points": 0.0,
-                "daily_ads_watched": 0,
-                "last_ad_date": None,
-                "invited_friends": 0,
-                "binance_id": None,
-                "invited_by": invited_by,
-                "created_at": dt.datetime.now().isoformat()
-            }
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-            logger.info(f"Created user {user_id} with invited_by {invited_by}")
-        
-        return users[user_id_str], is_new
+            logger.error(f"Error reading {USERS_FILE}: {e}")
+            raise
+
+async def write_json(users: Dict[str, Any]):
+    async with json_lock:
+        async with aiofiles.open(USERS_FILE, mode='w') as f:
+            await f.write(json.dumps(users, indent=2))
+
+async def init_json():
+    try:
+        async with aiofiles.open(USERS_FILE, mode='a') as f:
+            pass  # Ensure file exists
+        users = await read_json()
+        if not users:
+            await write_json({})
+        logger.info(f"JSON initialized at {USERS_FILE}")
+    except Exception as e:
+        logger.error(f"JSON init failed: {e}")
+        raise
+
+async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
+    users = await read_json()
+    user_id_str = str(user_id)
+    is_new = user_id_str not in users
+    if is_new:
+        users[user_id_str] = {
+            "user_id": user_id,
+            "points": 0.0,
+            "daily_ads_watched": 0,
+            "last_ad_date": None,
+            "invited_friends": 0,
+            "binance_id": None,
+            "invited_by": invited_by,
+            "created_at": dt.datetime.now().isoformat()
+        }
+        await write_json(users)
+        logger.info(f"Created user {user_id} with invited_by {invited_by}")
+    return users[user_id_str], is_new
+
+async def get_user_data(user_id: int) -> dict:
+    _, is_new = await get_or_create_user(user_id)
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        return users[user_id_str]
+    raise ValueError(f"User {user_id} not found")
 
 async def update_points(user_id: int, points: float):
-    async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                users = json.loads(await f.read())
-            user_id_str = str(user_id)
-            if user_id_str in users:
-                users[user_id_str]["points"] += points
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps(users, indent=2))
-                logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
-            else:
-                logger.error(f"Cannot update points: user {user_id} not found")
-        except Exception as e:
-            logger.error(f"Error updating points for {user_id}: {e}")
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]["points"] += points
+        await write_json(users)
+        logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
+    else:
+        logger.error(f"Cannot update points: user {user_id} not found")
 
 async def update_daily_ads(user_id: int, ads_watched: int):
     today = dt.datetime.now().date().isoformat()
-    async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                users = json.loads(await f.read())
-            user_id_str = str(user_id)
-            if user_id_str in users:
-                if users[user_id_str]["last_ad_date"] == today:
-                    users[user_id_str]["daily_ads_watched"] += ads_watched
-                else:
-                    users[user_id_str]["daily_ads_watched"] = ads_watched
-                    users[user_id_str]["last_ad_date"] = today
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps(users, indent=2))
-                logger.info(f"Updated ads for {user_id}: {users[user_id_str]['daily_ads_watched']}/30")
-        except Exception as e:
-            logger.error(f"Error updating ads for {user_id}: {e}")
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        user_data = users[user_id_str]
+        if user_data["last_ad_date"] == today:
+            user_data["daily_ads_watched"] += ads_watched
+        else:
+            user_data["daily_ads_watched"] = ads_watched
+            user_data["last_ad_date"] = today
+        await write_json(users)
+        logger.info(f"Updated ads for {user_id}: {user_data['daily_ads_watched']}/30")
+    else:
+        logger.error(f"Cannot update ads: user {user_id} not found")
 
 async def add_invited_friend(user_id: int):
-    async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                users = json.loads(await f.read())
-            user_id_str = str(user_id)
-            if user_id_str in users:
-                users[user_id_str]["invited_friends"] += 1
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps(users, indent=2))
-                logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
-            else:
-                logger.error(f"Cannot add friend: user {user_id} not found")
-        except Exception as e:
-            logger.error(f"Error adding friend for {user_id}: {e}")
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]["invited_friends"] += 1
+        await write_json(users)
+        logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
+    else:
+        logger.error(f"Cannot add friend: user {user_id} not found")
 
-async def withdraw_points(user_id: int, amount: float, binance_id: str):
-    async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                users = json.loads(await f.read())
-            user_id_str = str(user_id)
-            if user_id_str in users and users[user_id_str]["points"] >= amount:
-                users[user_id_str]["points"] -= amount
-                users[user_id_str]["binance_id"] = binance_id
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps(users, indent=2))
-                await application.bot.send_message(
-                    chat_id=ADMIN_CHANNEL_ID,
-                    text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
-                )
-                logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
-                return True
-            else:
-                logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
-        except Exception as e:
-            logger.error(f"Error withdrawing for {user_id}: {e}")
-        return False
+async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str in users and users[user_id_str]["points"] >= amount:
+        users[user_id_str]["points"] -= amount
+        users[user_id_str]["binance_id"] = binance_id
+        await write_json(users)
+        await application.bot.send_message(
+            chat_id=ADMIN_CHANNEL_ID,
+            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+        )
+        logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
+        return True
+    else:
+        logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
+    return False
 
 # Debug endpoint to inspect JSON
 @app.get("/debug/users")
 async def debug_users():
-    async with json_lock:
-        try:
-            async with aiofiles.open(USERS_FILE, mode='r') as f:
-                return json.loads(await f.read())
-        except Exception as e:
-            logger.error(f"Debug users error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    try:
+        return await read_json()
+    except Exception as e:
+        logger.error(f"Debug users error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # API endpoints
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user, _ = await get_or_create_user(user_id)
+    user = await get_user_data(user_id)
     return {
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
@@ -188,7 +167,7 @@ async def get_user(user_id: int):
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
     logger.info(f"Ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)
+    user = await get_user_data(user_id)
     today = dt.datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         logger.info(f"Ad limit reached for {user_id}")
@@ -196,13 +175,17 @@ async def watch_ad(user_id: int):
     
     await update_daily_ads(user_id, 1)
     await update_points(user_id, 20.0)
-    if user.get("invited_by"):
-        logger.info(f"Granting 2 $DOGS to referrer {user['invited_by']} for {user_id}'s ad")
-        await update_points(user["invited_by"], 2.0)
+    
+    invited_by = user.get("invited_by")
+    logger.info(f"Referrer check for {user_id}: invited_by = {invited_by}")
+    if invited_by:
+        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+        await update_points(invited_by, 2.0)
     else:
         logger.info(f"No referrer for {user_id}")
     
-    user, _ = await get_or_create_user(user_id)
+    # Refresh user data after updates
+    user = await get_user_data(user_id)
     return {
         "success": True,
         "points": user["points"],
@@ -220,7 +203,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML (removed "Invited By" line)
+# Mini App HTML (unchanged)
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -436,6 +419,23 @@ async def initialize_app():
         logger.info(f"Webhook set: {webhook_url}")
     else:
         logger.warning("BASE_URL not set - set manually via /set-webhook")
+
+def validate_token():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN not set")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_validate_token_async())
+    finally:
+        loop.close()
+
+async def _validate_token_async():
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
+            if resp.status != 200:
+                raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
+    logger.info("BOT_TOKEN validated")
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
