@@ -2,43 +2,35 @@ import os
 import json
 import aiofiles
 import aiohttp
-import time
-import hmac
-import hashlib
 import datetime as dt
-from typing import Optional, Dict, Any, List, Tuple
-import requests
-import asyncio
+from typing import Optional, Dict, Any, Tuple
 import logging
-import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-from pydantic import BaseModel
-from typing import Union
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = "jdsrhukds_bot"  # Hardcoded as requested
+BOT_USERNAME = "jdsrhukds_bot"
 PORT = int(os.getenv("PORT", "8000"))
-BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app.koyeb.app
+BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 MONETAG_ZONE = "9859391"
-USERS_FILE = "/tmp/users.json"  # Ephemeral on Koyeb; consider DB later
+USERS_FILE = "/tmp/users.json"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-json_lock = asyncio.Lock()  # For JSON concurrency
+json_lock = asyncio.Lock()
 
-# Validate token early
+# Validate token
 async def validate_token():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN not set")
@@ -48,7 +40,7 @@ async def validate_token():
                 raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
     logger.info("BOT_TOKEN validated")
 
-# JSON utils (your Mini App style, with locking)
+# JSON utils
 async def init_json():
     async with json_lock:
         try:
@@ -92,11 +84,10 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             }
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
-            logger.info(f"Created new user {user_id}")
+            logger.info(f"Created user {user_id} with invited_by {invited_by}")
         
         return users[user_id_str], is_new
 
-# Other utils (update_points, update_daily_ads, add_invited_friend, withdraw_points - as in your Mini App)
 async def update_points(user_id: int, points: float):
     async with json_lock:
         try:
@@ -107,6 +98,9 @@ async def update_points(user_id: int, points: float):
                 users[user_id_str]["points"] += points
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps(users, indent=2))
+                logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
+            else:
+                logger.error(f"Cannot update points: user {user_id} not found")
         except Exception as e:
             logger.error(f"Error updating points for {user_id}: {e}")
 
@@ -125,6 +119,7 @@ async def update_daily_ads(user_id: int, ads_watched: int):
                     users[user_id_str]["last_ad_date"] = today
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps(users, indent=2))
+                logger.info(f"Updated ads for {user_id}: {users[user_id_str]['daily_ads_watched']}/30")
         except Exception as e:
             logger.error(f"Error updating ads for {user_id}: {e}")
 
@@ -138,7 +133,9 @@ async def add_invited_friend(user_id: int):
                 users[user_id_str]["invited_friends"] += 1
                 async with aiofiles.open(USERS_FILE, mode='w') as f:
                     await f.write(json.dumps(users, indent=2))
-                logger.info(f"Incremented invited_friends for {user_id}")
+                logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
+            else:
+                logger.error(f"Cannot add friend: user {user_id} not found")
         except Exception as e:
             logger.error(f"Error adding friend for {user_id}: {e}")
 
@@ -157,12 +154,26 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
                     chat_id=ADMIN_CHANNEL_ID,
                     text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
                 )
+                logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
                 return True
+            else:
+                logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
         except Exception as e:
             logger.error(f"Error withdrawing for {user_id}: {e}")
         return False
 
-# API endpoints for Mini App
+# Debug endpoint to inspect JSON
+@app.get("/debug/users")
+async def debug_users():
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                return json.loads(await f.read())
+        except Exception as e:
+            logger.error(f"Debug users error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+# API endpoints
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user, _ = await get_or_create_user(user_id)
@@ -175,15 +186,20 @@ async def get_user(user_id: int):
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
+    logger.info(f"Ad watch request for {user_id}")
     user, _ = await get_or_create_user(user_id)
     today = dt.datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
+        logger.info(f"Ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
     
     await update_daily_ads(user_id, 1)
     await update_points(user_id, 20.0)
     if user.get("invited_by"):
+        logger.info(f"Granting 2 $DOGS to referrer {user['invited_by']} for {user_id}'s ad")
         await update_points(user["invited_by"], 2.0)
+    else:
+        logger.info(f"No referrer for {user_id}")
     
     user, _ = await get_or_create_user(user_id)
     return {
@@ -203,7 +219,7 @@ async def withdraw(user_id: int, request: Request):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML (full from your code)
+# Mini App HTML (removed "Invited By" line)
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -250,7 +266,6 @@ async def mini_app():
             <p>Your Invite Link: <span id="invite-link"></span></p>
             <button class="copy-btn" onclick="copyLink()">Copy Link</button>
             <p>Total Friends Invited: <span id="invited-count">0</span></p>
-            <p>Invited By: <span id="invited-by">None</span></p>
         </div>
     </div>
     <div id="withdraw" class="page">
@@ -284,7 +299,6 @@ async def mini_app():
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
-                document.getElementById('invited-by').textContent = data.invited_by || 'None';
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
             }} catch (error) {{
                 console.error('loadData error:', error);
@@ -363,7 +377,7 @@ async def mini_app():
     """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME))
 
-# Telegram webhook endpoint (from your code)
+# Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     update_json = await request.json()
@@ -371,7 +385,6 @@ async def telegram_webhook(request: Request):
     await application.process_update(update)
     return {"ok": True}
 
-# Set webhook endpoint (from your code)
 @app.get("/set-webhook")
 async def set_webhook():
     if not BASE_URL:
@@ -383,7 +396,7 @@ async def set_webhook():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Bot handlers (your Mini App /start with fair referrals)
+# Bot handlers
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -411,7 +424,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-# Initialize (your style)
+# Initialize
 async def initialize_app():
     await validate_token()
     await init_json()
