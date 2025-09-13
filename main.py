@@ -21,6 +21,8 @@ BOT_USERNAME = "jdsrhukds_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
+PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@PublicChannelName")
+PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
 USERS_FILE = "/tmp/users.json"
 
@@ -31,7 +33,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 json_lock = asyncio.Lock()
 
-# JSON utils (refactored for consistency)
+# JSON utils
 async def read_json() -> Dict[str, Any]:
     async with json_lock:
         try:
@@ -77,7 +79,8 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "invited_friends": 0,
             "binance_id": None,
             "invited_by": invited_by,
-            "created_at": dt.datetime.now().isoformat()
+            "created_at": dt.datetime.now().isoformat(),
+            "channel_verified": False
         }
         await write_json(users)
         logger.info(f"Created user {user_id} with invited_by {invited_by}")
@@ -143,6 +146,33 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
         logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
     return False
 
+async def verify_channel_membership(user_id: int) -> bool:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
+                json={"chat_id": PUBLIC_CHANNEL_USERNAME, "user_id": user_id}
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("ok") and data.get("result").get("status") in ["member", "administrator", "creator"]:
+                        users = await read_json()
+                        user_id_str = str(user_id)
+                        if user_id_str in users:
+                            users[user_id_str]["channel_verified"] = True
+                            await write_json(users)
+                            logger.info(f"User {user_id} verified channel membership for {PUBLIC_CHANNEL_USERNAME}")
+                        return True
+                    else:
+                        logger.info(f"User {user_id} not a member of channel {PUBLIC_CHANNEL_USERNAME}")
+                        return False
+                else:
+                    logger.error(f"Failed to verify channel membership for {user_id}: {await resp.text()}")
+                    return False
+    except Exception as e:
+        logger.error(f"Error verifying channel membership for {user_id}: {e}")
+        return False
+
 # Debug endpoint to inspect JSON
 @app.get("/debug/users")
 async def debug_users():
@@ -160,13 +190,18 @@ async def get_user(user_id: int):
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "invited_by": None
+        "invited_by": None,
+        "channel_verified": user["channel_verified"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
     logger.info(f"Ad watch request for {user_id}")
     user = await get_user_data(user_id)
+    if not user["channel_verified"]:
+        logger.info(f"User {user_id} not verified for channel membership")
+        return {"success": False, "message": "Channel membership not verified"}
+    
     today = dt.datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         logger.info(f"Ad limit reached for {user_id}")
@@ -183,7 +218,6 @@ async def watch_ad(user_id: int):
     else:
         logger.info(f"No referrer for {user_id}")
     
-    # Refresh user data after updates
     user = await get_user_data(user_id)
     return {
         "success": True,
@@ -196,13 +230,19 @@ async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
-    if amount < 2 or not binance_id:
+    if amount < 2000 or not binance_id:
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
     if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
-# Mini App HTML (unchanged)
+@app.post("/api/verify_channel/{user_id}")
+async def verify_channel(user_id: int):
+    if await verify_channel_membership(user_id):
+        return {"success": True, "message": "Channel membership verified"}
+    return {"success": False, "message": "You must join the channel first"}
+
+# Mini App HTML
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -227,9 +267,24 @@ async def mini_app():
         .input {{ padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }}
         .withdraw-btn {{ background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
         .copy-btn {{ background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }}
+        .verify-overlay {{ position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }}
+        .verify-box {{ background: #fff; padding: 20px; border-radius: 10px; text-align: center; max-width: 300px; color: #333; }}
+        .verify-box h2 {{ font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
+        .verify-box p {{ font-size: 14px; margin-bottom: 20px; }}
+        .join-btn {{ background: #0088cc; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 100%; margin-bottom: 10px; text-decoration: none; display: inline-block; }}
+        .verify-btn {{ background: #4CAF50; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 100%; }}
+        .verified-btn {{ background: #ccc; color: #666; cursor: not-allowed; }}
     </style>
 </head>
 <body>
+    <div id="verify-overlay" class="verify-overlay">
+        <div class="verify-box">
+            <h2>Join Our Channel</h2>
+            <p>You must join our Telegram channel and verify to start earning in the app</p>
+            <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
+            <button id="verify-btn" class="verify-btn">Verify</button>
+        </div>
+    </div>
     <div id="tasks" class="page active">
         <div class="header">
             <h2>Tasks</h2>
@@ -283,11 +338,43 @@ async def mini_app():
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
+                
+                const overlay = document.getElementById('verify-overlay');
+                if (data.channel_verified) {{
+                    overlay.style.display = 'none';
+                }} else {{
+                    overlay.style.display = 'flex';
+                }}
             }} catch (error) {{
                 console.error('loadData error:', error);
                 tg.showAlert('Failed to load data');
             }}
         }}
+
+        async function verifyChannel() {{
+            const verifyBtn = document.getElementById('verify-btn');
+            verifyBtn.disabled = true;
+            try {{
+                const response = await fetch('/api/verify_channel/' + userId, {{ method: 'POST' }});
+                const data = await response.json();
+                if (data.success) {{
+                    verifyBtn.textContent = 'Verified';
+                    verifyBtn.classList.add('verified-btn');
+                    document.getElementById('verify-overlay').style.display = 'none';
+                    tg.showAlert('Channel membership verified!');
+                    loadData();
+                }} else {{
+                    tg.showAlert('Please join the channel first!');
+                }}
+            }} catch (error) {{
+                console.error('verifyChannel error:', error);
+                tg.showAlert('Failed to verify channel membership');
+            }} finally {{
+                verifyBtn.disabled = false;
+            }}
+        }}
+
+        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
 
         async function watchAd() {{
             const watchBtn = document.getElementById('watch-ad-btn');
@@ -301,6 +388,9 @@ async def mini_app():
                         tg.showAlert('Ad watched! +20 $DOGS');
                     }} else if (data.limit_reached) {{
                         tg.showAlert('Daily limit reached!');
+                    }} else if (data.message === 'Channel membership not verified') {{
+                        tg.showAlert('Please verify channel membership first!');
+                        document.getElementById('verify-overlay').style.display = 'flex';
                     }} else {{
                         tg.showAlert('Error watching ad');
                     }}
@@ -326,7 +416,7 @@ async def mini_app():
         async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2 || !binanceId) {{
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }}
@@ -347,6 +437,8 @@ async def mini_app():
         }}
 
         function showPage(page) {{
+            const overlay = document.getElementById('verify-overlay');
+            if (overlay.style.display === 'flex') return;
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
