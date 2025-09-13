@@ -161,7 +161,7 @@ async def get_user(user_id: int):
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "invited_by": user.get("invited_by")
+        "invited_by": None
     }
 
 @app.post("/api/watch_ad/{user_id}")
