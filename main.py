@@ -274,7 +274,7 @@ async def mini_app():
             min-height: 100vh;
             flex-direction: column;
             align-items: center;
-            justify-content: space-between; /* Spread content vertically */
+            justify-content: space-between;
             padding-top: 2rem;
             padding-bottom: 5rem; /* Space for fixed nav bar */
         }
@@ -285,13 +285,13 @@ async def mini_app():
 
         .header {
             text-align: center;
-            margin-bottom: 2.5rem; /* Increased spacing */
+            margin-bottom: 1.5rem; /* Reduced spacing */
         }
 
         .header h2 {
             font-size: 2rem;
             font-weight: 700;
-            margin-bottom: 1rem; /* Increased spacing */
+            margin-bottom: 0.5rem; /* Reduced spacing */
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
@@ -299,7 +299,7 @@ async def mini_app():
             font-size: 1.125rem;
             font-weight: 400;
             opacity: 0.9;
-            margin-bottom: 0.75rem; /* Increased spacing */
+            margin-bottom: 0.5rem; /* Reduced spacing */
         }
 
         .highlight {
@@ -310,19 +310,15 @@ async def mini_app():
         .card {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
-            padding: 2rem; /* Increased padding */
+            padding: 1rem; /* Reduced padding */
             border-radius: 1rem;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
             width: 100%;
             max-width: 400px;
-            min-height: 300px; /* Minimum height to expand card */
-            flex-grow: 1; /* Allow card to grow */
+            min-height: 200px; /* Reduced height */
             text-align: center;
-            margin-bottom: 2rem; /* Increased spacing */
+            margin-bottom: 1rem; /* Reduced spacing */
             transition: transform 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-around; /* Spread card content */
         }
 
         .card:hover {
@@ -332,12 +328,12 @@ async def mini_app():
         .card h3 {
             font-size: 1.25rem;
             font-weight: 600;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
         }
 
         .card p {
             font-size: 1rem;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             opacity: 0.9;
         }
 
@@ -391,7 +387,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -412,7 +408,7 @@ async def mini_app():
             width: 100%;
             text-decoration: none;
             display: inline-block;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -430,7 +426,7 @@ async def mini_app():
             cursor: pointer;
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -449,7 +445,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -466,7 +462,7 @@ async def mini_app():
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
             font-size: 1rem;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
@@ -496,7 +492,7 @@ async def mini_app():
 
         .verify-box {
             background: #ffffff;
-            padding: 2rem; /* Increased padding */
+            padding: 1rem; /* Reduced padding */
             border-radius: 1rem;
             text-align: center;
             max-width: 320px;
@@ -515,12 +511,12 @@ async def mini_app():
         .verify-box h2 {
             font-size: 1.5rem;
             font-weight: 700;
-            margin-bottom: 1rem; /* Increased spacing */
+            margin-bottom: 0.5rem; /* Reduced spacing */
         }
 
         .verify-box p {
             font-size: 0.875rem;
-            margin-bottom: 1.5rem; /* Increased spacing */
+            margin-bottom: 0.75rem; /* Reduced spacing */
             opacity: 0.8;
         }
 
@@ -541,9 +537,9 @@ async def mini_app():
                 font-size: 1.75rem;
             }
             .card {
-                padding: 1.5rem;
-                min-height: 50vh; /* Expand card on mobile */
-                margin-bottom: 1.5rem;
+                padding: 0.75rem; /* Reduced padding */
+                min-height: 30vh; /* Reduced height */
+                margin-bottom: 0.75rem; /* Reduced spacing */
             }
             .nav-btn {
                 font-size: 0.8rem;
@@ -554,23 +550,23 @@ async def mini_app():
             }
             .verify-box {
                 max-width: 280px;
-                padding: 1.5rem;
+                padding: 0.75rem; /* Reduced padding */
             }
             .header {
-                margin-bottom: 2rem;
+                margin-bottom: 1rem;
             }
             .header p {
                 font-size: 1rem;
-                margin-bottom: 0.5rem;
+                margin-bottom: 0.4rem;
             }
             .card h3 {
-                margin-bottom: 1rem;
+                margin-bottom: 0.5rem;
             }
             .card p {
-                margin-bottom: 1rem;
+                margin-bottom: 0.5rem;
             }
             .watch-btn, .btn-primary, .join-btn, .copy-btn, .withdraw-btn, .input {
-                margin-bottom: 1rem;
+                margin-bottom: 0.5rem;
             }
         }
     </style>
