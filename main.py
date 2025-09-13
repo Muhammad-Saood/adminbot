@@ -16,7 +16,7 @@ from typing import Optional, Tuple
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME")  # New: Load bot username from env
+BOT_USERNAME = "jdsrhukds_bot"  # Hardcoded: Replace with your actual bot username if different
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.herokuapp.com
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
@@ -24,7 +24,7 @@ MONETAG_ZONE = "9859391"
 USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
-json_lock = asyncio.Lock()  # New: Lock for JSON file operations
+json_lock = asyncio.Lock()  # Lock for JSON file operations
 
 # Initialize JSON file
 async def init_json():
@@ -167,7 +167,7 @@ async def get_user(user_id: int):
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "invited_by": user.get("invited_by")  # New: Include referrer
+        "invited_by": user.get("invited_by")  # Include referrer
     }
 
 @app.post("/api/watch_ad/{user_id}")
@@ -194,7 +194,7 @@ async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
-    if amount < 2000 or not binance_id:  # Fixed: Corrected typo (20 to 2000)
+    if amount < 2000 or not binance_id:
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
     if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
@@ -247,7 +247,7 @@ async def mini_app():
             <p>Your Invite Link: <span id="invite-link"></span></p>
             <button class="copy-btn" onclick="copyLink()">Copy Link</button>
             <p>Total Friends Invited: <span id="invited-count">0</span></p>
-            <p>Invited By: <span id="invited-by">None</span></p> <!-- New: Display referrer -->
+            <p>Invited By: <span id="invited-by">None</span></p> <!-- Display referrer -->
         </div>
     </div>
     <div id="withdraw" class="page">
@@ -281,8 +281,8 @@ async def mini_app():
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
-                document.getElementById('invited-by').textContent = data.invited_by || 'None'; // New: Show referrer
-                document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId; // Updated: Use env username
+                document.getElementById('invited-by').textContent = data.invited_by || 'None'; // Show referrer
+                document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId; // Use hardcoded username
             }} catch (error) {{
                 console.error('loadData error:', error);
                 tg.showAlert('Failed to load data, retrying...');
