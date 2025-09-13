@@ -1,4 +1,4 @@
-import os
+okimport os
 import json
 import aiofiles
 import aiohttp
@@ -255,72 +255,354 @@ async def mini_app():
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-        .nav {{ position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.2); }}
-        .nav-btn {{ flex: 1; padding: 15px; text-align: center; background: none; border: none; cursor: pointer; color: white; }}
-        .nav-btn.active {{ background: rgba(255,255,255,0.2); }}
-        .page {{ display: none; min-height: 100vh; }}
-        .page.active {{ display: block; }}
-        .header {{ text-align: center; margin: 20px 0; }}
-        .ad-panel {{ background: rgba(255,255,255,0.1); padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }}
-        .watch-btn {{ background: #4CAF50; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }}
-        .input {{ padding: 10px; margin: 10px 0; width: 100%; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(255,255,255,0.1); color: white; }}
-        .withdraw-btn {{ background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
-        .copy-btn {{ background: #9E9E9E; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }}
-        .verify-overlay {{ position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }}
-        .verify-box {{ background: #fff; padding: 20px; border-radius: 10px; text-align: center; max-width: 300px; color: #333; }}
-        .verify-box h2 {{ font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
-        .verify-box p {{ font-size: 14px; margin-bottom: 20px; }}
-        .join-btn {{ background: #0088cc; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 100%; margin-bottom: 10px; text-decoration: none; display: inline-block; }}
-        .verify-btn {{ background: #4CAF50; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 100%; }}
-        .verified-btn {{ background: #ccc; color: #666; cursor: not-allowed; }}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #4b6cb7, #182848);
+            min-height: 100vh;
+            color: #ffffff;
+            padding: 20px;
+        }
+
+        .page {
+            display: none;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding-top: 2rem;
+        }
+
+        .page.active {
+            display: flex;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 1.125rem;
+            font-weight: 400;
+            opacity: 0.9;
+        }
+
+        .highlight {
+            color: #ffd700;
+            font-weight: 600;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            margin-bottom: 1rem;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .card p {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            opacity: 0.9;
+        }
+
+        .nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            background: rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-btn {
+            flex: 1;
+            padding: 1rem;
+            text-align: center;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: background 0.3s ease, transform 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .nav-btn.active {
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 0.5rem 0.5rem 0 0;
+        }
+
+        .nav-btn svg {
+            width: 24px;
+            height: 24px;
+            margin: 0 auto 0.25rem;
+            stroke: #ffffff;
+        }
+
+        .watch-btn, .btn-primary {
+            background: #10b981;
+            color: #ffffff;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .watch-btn:hover, .btn-primary:hover {
+            background: #059669;
+            transform: scale(1.02);
+        }
+
+        .join-btn {
+            background: #0284c7;
+            color: #ffffff;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .join-btn:hover {
+            background: #026ea5;
+            transform: scale(1.02);
+        }
+
+        .copy-btn {
+            background: #6b7280;
+            color: #ffffff;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background: #5b616e;
+            transform: scale(1.02);
+        }
+
+        .withdraw-btn {
+            background: #ef4444;
+            color: #ffffff;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .withdraw-btn:hover {
+            background: #dc2626;
+            transform: scale(1.02);
+        }
+
+        .input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .input:focus {
+            outline: none;
+            border: 1px solid #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+        }
+
+        .verify-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.3s ease;
+        }
+
+        .verify-box {
+            background: #ffffff;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            text-align: center;
+            max-width: 320px;
+            width: 100%;
+            margin: 0 1rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transform: scale(1);
+            transition: transform 0.3s ease;
+            color: #1f2937;
+        }
+
+        .verify-box:hover {
+            transform: scale(1.05);
+        }
+
+        .verify-box h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+        }
+
+        .verify-box p {
+            font-size: 0.875rem;
+            margin-bottom: 1.25rem;
+            opacity: 0.8;
+        }
+
+        .verified-btn {
+            background: #d1d5db;
+            color: #6b7280;
+            cursor: not-allowed;
+        }
+
+        .break-all {
+            word-break: break-all;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 640px) {
+            .header h2 {
+                font-size: 1.75rem;
+            }
+            .card {
+                padding: 1rem;
+            }
+            .nav-btn {
+                font-size: 0.8rem;
+            }
+            .nav-btn svg {
+                width: 20px;
+                height: 20px;
+            }
+            .verify-box {
+                max-width: 280px;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="verify-overlay" class="verify-overlay">
         <div class="verify-box">
             <h2>Join Our Channel</h2>
-            <p>You must join our Telegram channel and verify to start earning in the app</p>
+            <p>You must join our Telegram channel to start earning!</p>
             <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
-            <button id="verify-btn" class="verify-btn">Verify</button>
+            <button id="verify-btn" class="btn-primary">Verify</button>
         </div>
     </div>
     <div id="tasks" class="page active">
         <div class="header">
             <h2>Tasks</h2>
             <p>ID: <span id="user-id"></span></p>
-            <p>Balance: <span id="balance">0.00</span> $DOGS</p>
+            <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
         </div>
-        <div class="ad-panel">
-            <h3>Watch Ads</h3>
-            <p>1 Ad watch = 20 $DOGS</p>
-            <p>Daily Limit: <span id="daily-limit">0</span>/30</p>
+        <div class="card ad-panel">
+            <h3>Earn with Ads</h3>
+            <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
+            <p>Daily Limit: <span id="daily-limit" class="highlight">0</span>/30</p>
             <button class="watch-btn" id="watch-ad-btn">Watch Ad</button>
         </div>
     </div>
     <div id="invite" class="page">
         <div class="header">
-            <h2>Invite</h2>
-            <p>Your Invite Link: <span id="invite-link"></span></p>
-            <button class="copy-btn" onclick="copyLink()">Copy Link</button>
-            <p>Total Friends Invited: <span id="invited-count">0</span></p>
+            <h2>Invite Friends</h2>
+        </div>
+        <div class="card">
+            <p class="invite-label">Your Invite Link:</p>
+            <p id="invite-link" class="highlight break-all"></p>
+            <button class="copy-btn" onclick="copyLink()">Copy Invite Link</button>
+            <p>Total Friends: <span id="invited-count" class="highlight">0</span></p>
         </div>
     </div>
     <div id="withdraw" class="page">
         <div class="header">
             <h2>Withdraw</h2>
-            <p>Minimum 2000 $DOGS</p>
+            <p class="highlight">Minimum 2000 $DOGS</p>
         </div>
-        <div class="input-group">
+        <div class="card input-group">
             <input type="number" id="amount" placeholder="Enter amount (min 2000)" class="input">
             <input type="text" id="binance-id" placeholder="Enter Binance ID" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
         </div>
     </div>
     <div class="nav">
-        <button class="nav-btn active" onclick="showPage('tasks')">Tasks</button>
-        <button class="nav-btn" onclick="showPage('invite')">Invite</button>
-        <button class="nav-btn" onclick="showPage('withdraw')">Withdraw</button>
+        <button class="nav-btn active" onclick="showPage('tasks')">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+            Tasks
+        </button>
+        <button class="nav-btn" onclick="showPage('invite')">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m-3 4h.01M9 16h.01"></path></svg>
+            Invite
+        </button>
+        <button class="nav-btn" onclick="showPage('withdraw')">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            Withdraw
+        </button>
     </div>
 
     <script>
@@ -329,8 +611,26 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
-        async function loadData() {{
-            try {{
+        function getCachedVerificationStatus() {
+            return localStorage.getItem(`channel_verified_${userId}`) === 'true';
+        }
+
+        function setCachedVerificationStatus(status) {
+            localStorage.setItem(`channel_verified_${userId}`, status);
+        }
+
+        async function loadData() {
+            try {
+                // Check cached verification status first
+                const isVerified = getCachedVerificationStatus();
+                const overlay = document.getElementById('verify-overlay');
+                if (isVerified) {
+                    overlay.style.display = 'none';
+                } else {
+                    overlay.style.display = 'flex';
+                }
+
+                // Fetch user data from API
                 const response = await fetch('/api/user/' + userId);
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
@@ -338,112 +638,116 @@ async def mini_app():
                 document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
-                
-                const overlay = document.getElementById('verify-overlay');
-                if (data.channel_verified) {{
+
+                // Update verification status
+                if (data.channel_verified) {
+                    setCachedVerificationStatus(true);
                     overlay.style.display = 'none';
-                }} else {{
+                } else {
+                    setCachedVerificationStatus(false);
                     overlay.style.display = 'flex';
-                }}
-            }} catch (error) {{
+                }
+            } catch (error) {
                 console.error('loadData error:', error);
                 tg.showAlert('Failed to load data');
-            }}
-        }}
+            }
+        }
 
-        async function verifyChannel() {{
+        async function verifyChannel() {
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
-            try {{
-                const response = await fetch('/api/verify_channel/' + userId, {{ method: 'POST' }});
+            try {
+                const response = await fetch('/api/verify_channel/' + userId, { method: 'POST' });
                 const data = await response.json();
-                if (data.success) {{
+                if (data.success) {
                     verifyBtn.textContent = 'Verified';
                     verifyBtn.classList.add('verified-btn');
                     document.getElementById('verify-overlay').style.display = 'none';
+                    setCachedVerificationStatus(true);
                     tg.showAlert('Channel membership verified!');
-                    loadData();
-                }} else {{
+                    await loadData();
+                } else {
                     tg.showAlert('Please join the channel first!');
-                }}
-            }} catch (error) {{
+                }
+            } catch (error) {
                 console.error('verifyChannel error:', error);
                 tg.showAlert('Failed to verify channel membership');
-            }} finally {{
+            } finally {
                 verifyBtn.disabled = false;
-            }}
-        }}
+            }
+        }
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
 
-        async function watchAd() {{
+        async function watchAd() {
             const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
-            try {{
-                await show_{MONETAG_ZONE}().then(async () => {{
-                    const response = await fetch('/api/watch_ad/' + userId, {{ method: 'POST' }});
+            try {
+                await show_{MONETAG_ZONE}().then(async () => {
+                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                     const data = await response.json();
-                    if (data.success) {{
+                    if (data.success) {
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    }} else if (data.limit_reached) {{
+                    } else if (data.limit_reached) {
                         tg.showAlert('Daily limit reached!');
-                    }} else if (data.message === 'Channel membership not verified') {{
+                    } else if (data.message === 'Channel membership not verified') {
                         tg.showAlert('Please verify channel membership first!');
+                        setCachedVerificationStatus(false);
                         document.getElementById('verify-overlay').style.display = 'flex';
-                    }} else {{
+                    } else {
                         tg.showAlert('Error watching ad');
-                    }}
-                    loadData();
-                }}).catch(error => {{
+                    }
+                    await loadData();
+                }).catch(error => {
                     tg.showAlert('Ad failed to load');
                     console.error('Monetag error:', error);
-                }});
-            }} finally {{
+                });
+            } finally {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-            }}
-        }}
+            }
+        }
 
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
-        async function copyLink() {{
+        async function copyLink() {
             const link = document.getElementById('invite-link').textContent;
             await navigator.clipboard.writeText(link);
             tg.showAlert('Link copied!');
-        }}
+        }
 
-        async function withdraw() {{
+        async function withdraw() {
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {{
+            if (amount < 2000 || !binanceId) {
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
-            }}
-            const response = await fetch('/api/withdraw/' + userId, {{
+            }
+            const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{amount, binance_id: binanceId}})
-            }});
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({amount, binance_id: binanceId})
+            });
             const data = await response.json();
-            if (data.success) {{
+            if (data.success) {
                 tg.showAlert('Withdraw successful! Credited within 24 hours.');
                 document.getElementById('amount').value = '';
                 document.getElementById('binance-id').value = '';
-                loadData();
-            }} else {{
+                await loadData();
+            } else {
                 tg.showAlert(data.message || 'Withdraw failed');
-            }}
-        }}
+            }
+        }
 
-        function showPage(page) {{
+        function showPage(page) {
             const overlay = document.getElementById('verify-overlay');
             if (overlay.style.display === 'flex') return;
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-        }}
+        }
 
         loadData();
     </script>
