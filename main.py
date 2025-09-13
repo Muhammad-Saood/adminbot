@@ -270,9 +270,8 @@ async def mini_app():
         }
 
         .page {
-            display: none;
+            display: none; /* Only one display rule */
             min-height: 100vh;
-            display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
@@ -592,15 +591,15 @@ async def mini_app():
         </div>
     </div>
     <div class="nav">
-        <button class="nav-btn active" onclick="showPage('tasks')">
+        <button class="nav-btn active" onclick="showPage('tasks')" data-page="tasks">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
             Tasks
         </button>
-        <button class="nav-btn" onclick="showPage('invite')">
+        <button class="nav-btn" onclick="showPage('invite')" data-page="invite">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m-3 4h.01M9 16h.01"></path></svg>
             Invite
         </button>
-        <button class="nav-btn" onclick="showPage('withdraw')">
+        <button class="nav-btn" onclick="showPage('withdraw')" data-page="withdraw">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             Withdraw
         </button>
@@ -719,9 +718,14 @@ async def mini_app():
         document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
         async function copyLink() {
-            const link = document.getElementById('invite-link').textContent;
-            await navigator.clipboard.writeText(link);
-            tg.showAlert('Link copied!');
+            try {
+                const link = document.getElementById('invite-link').textContent;
+                await navigator.clipboard.writeText(link);
+                tg.showAlert('Link copied!');
+            } catch (error) {
+                console.error('copyLink error:', error);
+                tg.showAlert('Failed to copy link');
+            }
         }
 
         async function withdraw() {
@@ -752,12 +756,24 @@ async def mini_app():
 
         function showPage(page) {
             const overlay = document.getElementById('verify-overlay');
-            if (overlay.style.display === 'flex') return;
+            if (overlay && overlay.style.display === 'flex') {
+                console.log('Navigation blocked: Verification overlay is visible');
+                return;
+            }
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById(page).classList.add('active');
+            const targetPage = document.getElementById(page);
+            if (targetPage) {
+                targetPage.classList.add('active');
+            } else {
+                console.error(`Page ${page} not found`);
+                return;
+            }
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            if (event && event.target) {
-                event.target.classList.add('active');
+            const targetBtn = document.querySelector(`.nav-btn[data-page="${page}"]`);
+            if (targetBtn) {
+                targetBtn.classList.add('active');
+            } else {
+                console.error(`Button for page ${page} not found`);
             }
         }
 
@@ -767,7 +783,6 @@ async def mini_app():
 </html>
     """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("show_MONETAG_ZONE", f"show_{MONETAG_ZONE}").replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
-
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
