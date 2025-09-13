@@ -3,6 +3,7 @@ import json
 import aiofiles
 import aiohttp
 import threading
+import requests
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
@@ -602,6 +603,7 @@ async def mini_app():
     <div id="invite" class="page">
         <div class="header">
             <h2>Invite Friends</h2>
+            <p class="small-text">Invite friends by using the link given below and get 10% bonus of friends earning</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
