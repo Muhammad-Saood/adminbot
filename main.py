@@ -84,7 +84,6 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
     return users[user_id_str], is_new
 
 async def get_user_data(user_id: int) -> dict:
-    _, is_new = await get_or_create_user(user_id)
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
@@ -393,18 +392,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             invited_by = None
     
-    existing_user, is_new = await get_or_create_user(update.effective_user.id)
-    if is_new and invited_by and invited_by != update.effective_user.id and existing_user.get("invited_by") is None:
-        await get_or_create_user(update.effective_user.id, invited_by)
+    user, is_new = await get_or_create_user(update.effective_user.id, invited_by)
+    
+    if is_new and invited_by and invited_by != update.effective_user.id:
         await add_invited_friend(invited_by)
         logger.info(f"New referral: {update.effective_user.id} by {invited_by}")
-        await update.message.reply_text("Welcome! Referred by a friend. Launch Mini App!")
+        welcome_text = "Welcome! Referred by a friend. Launch Mini App!"
     else:
-        await update.message.reply_text("Welcome back! Launch Mini App!")
+        welcome_text = "Welcome back! Launch Mini App!"
     
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
 
