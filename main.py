@@ -5,6 +5,7 @@ import aiohttp
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
