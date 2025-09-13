@@ -420,17 +420,9 @@ async def initialize_app():
     else:
         logger.warning("BASE_URL not set - set manually via /set-webhook")
 
-def validate_token():
+async def validate_token():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN not set")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_validate_token_async())
-    finally:
-        loop.close()
-
-async def _validate_token_async():
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
             if resp.status != 200:
