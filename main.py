@@ -7,6 +7,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import uvicorn
+import threading  # New: For background uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import asyncio
@@ -368,11 +369,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 
 async def main():
-    await init_json()
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    try:
+        await init_json()
+        print("Initializing bot...")
+        await application.initialize()
+        await application.start()
+        print("Starting uvicorn in background thread...")
+        # New: Run uvicorn in daemon thread (non-blocking)
+        threading.Thread(
+            target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info"),
+            daemon=True
+        ).start()
+        print("Bot polling started successfully!")
+        # Fixed: Use run_polling instead of deprecated updater
+        await application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Startup error: {e}")
+        raise  # Re-raise for deployment logs
 
 if __name__ == "__main__":
     asyncio.run(main())
