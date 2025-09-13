@@ -7,14 +7,16 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import uvicorn
+import threading
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import asyncio
-from typing import Optional
+from typing import Optional, Tuple
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME")  # New: Load bot username from env
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.herokuapp.com
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
@@ -22,150 +24,155 @@ MONETAG_ZONE = "9859391"
 USERS_FILE = "/tmp/users.json"  # Use /tmp for Heroku compatibility
 
 app = FastAPI()
+json_lock = asyncio.Lock()  # New: Lock for JSON file operations
 
-# Initialize JSON file (runs on startup, but not critical if fails)
+# Initialize JSON file
 async def init_json():
     try:
-        # Touch the file to create if needed
-        async with aiofiles.open(USERS_FILE, mode='a') as f:
-            pass
-        # Check and initialize empty dict if missing content
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            content = await f.read()
-            if not content.strip():
-                async with aiofiles.open(USERS_FILE, mode='w') as f:
-                    await f.write(json.dumps({}))
+        async with json_lock:
+            async with aiofiles.open(USERS_FILE, mode='a') as f:
+                pass
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                content = await f.read()
+                if not content.strip():
+                    async with aiofiles.open(USERS_FILE, mode='w') as f:
+                        await f.write(json.dumps({}))
         print(f"JSON storage initialized at {USERS_FILE}")
     except Exception as e:
         print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
 
 # User data functions
-async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
-    users = {}
-    file_exists = False
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            content = await f.read()
-            if content.strip():
-                users = json.loads(content)
-                file_exists = True
-    except FileNotFoundError:
-        print(f"users.json not found, creating new: {USERS_FILE}")
-    except Exception as e:
-        print(f"Error reading users.json: {e}")
-    
-    user_id_str = str(user_id)
-    if user_id_str not in users:
-        users[user_id_str] = {
-            "user_id": user_id,
-            "points": 0.0,
-            "daily_ads_watched": 0,
-            "last_ad_date": None,
-            "invited_friends": 0,
-            "binance_id": None,
-            "invited_by": invited_by,
-            "created_at": datetime.now().isoformat()
-        }
+async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
+    async with json_lock:
+        users = {}
         try:
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-            print(f"Created new user {user_id} in JSON")
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                content = await f.read()
+                if content.strip():
+                    users = json.loads(content)
+        except FileNotFoundError:
+            print(f"users.json not found, creating new: {USERS_FILE}")
         except Exception as e:
-            print(f"Error writing new user to JSON: {e}")
-    
-    return users[user_id_str]
-
-async def update_points(user_id: int, points: float):
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            users = json.loads(await f.read())
+            print(f"Error reading users.json: {e}")
         
         user_id_str = str(user_id)
-        if user_id_str in users:
-            users[user_id_str]["points"] += points
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-    except Exception as e:
-        print(f"Error updating points for user {user_id}: {e}")
+        is_new = user_id_str not in users  # Track if user is new
+        if is_new:
+            users[user_id_str] = {
+                "user_id": user_id,
+                "points": 0.0,
+                "daily_ads_watched": 0,
+                "last_ad_date": None,
+                "invited_friends": 0,
+                "binance_id": None,
+                "invited_by": invited_by,
+                "created_at": datetime.now().isoformat()
+            }
+            try:
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+                print(f"Created new user {user_id} in JSON")
+            except Exception as e:
+                print(f"Error writing new user to JSON: {e}")
+        
+        return users[user_id_str], is_new
+
+async def update_points(user_id: int, points: float):
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                users = json.loads(await f.read())
+            
+            user_id_str = str(user_id)
+            if user_id_str in users:
+                users[user_id_str]["points"] += points
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+        except Exception as e:
+            print(f"Error updating points for user {user_id}: {e}")
 
 async def update_daily_ads(user_id: int, ads_watched: int):
     today = datetime.now().date().isoformat()
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            users = json.loads(await f.read())
-        
-        user_id_str = str(user_id)
-        if user_id_str in users:
-            if users[user_id_str]["last_ad_date"] == today:
-                users[user_id_str]["daily_ads_watched"] += ads_watched
-            else:
-                users[user_id_str]["daily_ads_watched"] = ads_watched
-                users[user_id_str]["last_ad_date"] = today
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-    except Exception as e:
-        print(f"Error updating daily ads for user {user_id}: {e}")
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                users = json.loads(await f.read())
+            
+            user_id_str = str(user_id)
+            if user_id_str in users:
+                if users[user_id_str]["last_ad_date"] == today:
+                    users[user_id_str]["daily_ads_watched"] += ads_watched
+                else:
+                    users[user_id_str]["daily_ads_watched"] = ads_watched
+                    users[user_id_str]["last_ad_date"] = today
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+        except Exception as e:
+            print(f"Error updating daily ads for user {user_id}: {e}")
 
 async def add_invited_friend(user_id: int):
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            users = json.loads(await f.read())
-        
-        user_id_str = str(user_id)
-        if user_id_str in users:
-            users[user_id_str]["invited_friends"] += 1
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-    except Exception as e:
-        print(f"Error adding invited friend for user {user_id}: {e}")
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                users = json.loads(await f.read())
+            
+            user_id_str = str(user_id)
+            if user_id_str in users:
+                users[user_id_str]["invited_friends"] += 1
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+        except Exception as e:
+            print(f"Error adding invited friend for user {user_id}: {e}")
 
 async def set_binance_id(user_id: int, binance_id: str):
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            users = json.loads(await f.read())
-        
-        user_id_str = str(user_id)
-        if user_id_str in users:
-            users[user_id_str]["binance_id"] = binance_id
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-    except Exception as e:
-        print(f"Error setting binance_id for user {user_id}: {e}")
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                users = json.loads(await f.read())
+            
+            user_id_str = str(user_id)
+            if user_id_str in users:
+                users[user_id_str]["binance_id"] = binance_id
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+        except Exception as e:
+            print(f"Error setting binance_id for user {user_id}: {e}")
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str):
-    try:
-        async with aiofiles.open(USERS_FILE, mode='r') as f:
-            users = json.loads(await f.read())
-        
-        user_id_str = str(user_id)
-        if user_id_str in users and users[user_id_str]["points"] >= amount:
-            users[user_id_str]["points"] -= amount
-            users[user_id_str]["binance_id"] = binance_id
-            async with aiofiles.open(USERS_FILE, mode='w') as f:
-                await f.write(json.dumps(users, indent=2))
-            # Notify admin
-            await application.bot.send_message(
-                chat_id=ADMIN_CHANNEL_ID,
-                text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
-            )
-            return True
-    except Exception as e:
-        print(f"Error processing withdrawal for user {user_id}: {e}")
-    return False
+    async with json_lock:
+        try:
+            async with aiofiles.open(USERS_FILE, mode='r') as f:
+                users = json.loads(await f.read())
+            
+            user_id_str = str(user_id)
+            if user_id_str in users and users[user_id_str]["points"] >= amount:
+                users[user_id_str]["points"] -= amount
+                users[user_id_str]["binance_id"] = binance_id
+                async with aiofiles.open(USERS_FILE, mode='w') as f:
+                    await f.write(json.dumps(users, indent=2))
+                await application.bot.send_message(
+                    chat_id=ADMIN_CHANNEL_ID,
+                    text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+                )
+                return True
+        except Exception as e:
+            print(f"Error processing withdrawal for user {user_id}: {e}")
+        return False
 
 # API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     return {
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
-        "invited_friends": user["invited_friends"]
+        "invited_friends": user["invited_friends"],
+        "invited_by": user.get("invited_by")  # New: Include referrer
     }
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     today = datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         return {"success": False, "limit_reached": True}
@@ -175,7 +182,7 @@ async def watch_ad(user_id: int):
     if user.get("invited_by"):
         await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
     
-    user = await get_or_create_user(user_id)
+    user, _ = await get_or_create_user(user_id)
     return {
         "success": True,
         "points": user["points"],
@@ -187,7 +194,7 @@ async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
-    if amount < 20 or not binance_id:
+    if amount < 2000 or not binance_id:  # Fixed: Corrected typo (20 to 2000)
         return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
     if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
@@ -240,6 +247,7 @@ async def mini_app():
             <p>Your Invite Link: <span id="invite-link"></span></p>
             <button class="copy-btn" onclick="copyLink()">Copy Link</button>
             <p>Total Friends Invited: <span id="invited-count">0</span></p>
+            <p>Invited By: <span id="invited-by">None</span></p> <!-- New: Display referrer -->
         </div>
     </div>
     <div id="withdraw" class="page">
@@ -266,12 +274,20 @@ async def mini_app():
         document.getElementById('user-id').textContent = userId;
 
         async function loadData() {{
-            const response = await fetch('/api/user/' + userId);
-            const data = await response.json();
-            document.getElementById('balance').textContent = data.points.toFixed(2);
-            document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
-            document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
+            try {{
+                const response = await fetch('/api/user/' + userId);
+                if (!response.ok) throw new Error('API fetch failed: ' + response.status);
+                const data = await response.json();
+                document.getElementById('balance').textContent = data.points.toFixed(2);
+                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+                document.getElementById('invited-count').textContent = data.invited_friends;
+                document.getElementById('invited-by').textContent = data.invited_by || 'None'; // New: Show referrer
+                document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId; // Updated: Use env username
+            }} catch (error) {{
+                console.error('loadData error:', error);
+                tg.showAlert('Failed to load data, retrying...');
+                setTimeout(loadData, 2000);
+            }}
         }}
 
         async function watchAd() {{
@@ -313,7 +329,7 @@ async def mini_app():
         async function withdraw() {{
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
-            if (amount < 20 || !binanceId) {{
+            if (amount < 2000 || !binanceId) {{
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }}
@@ -340,13 +356,12 @@ async def mini_app():
             event.target.classList.add('active');
         }}
 
-        // Load initial data
         loadData();
     </script>
 </body>
 </html>
     """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME))
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
@@ -357,10 +372,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
-            await add_invited_friend(invited_by)
         except ValueError:
-            pass
-    await get_or_create_user(update.effective_user.id, invited_by)
+            invited_by = None
+    
+    # Check for existing user and prevent duplicate/self-referrals
+    existing_user, is_new = await get_or_create_user(update.effective_user.id)
+    if is_new and invited_by and invited_by != update.effective_user.id and existing_user.get("invited_by") is None:
+        await get_or_create_user(update.effective_user.id, invited_by)  # Set referrer
+        await add_invited_friend(invited_by)  # Increment referrer's count
+        await update.message.reply_text("Welcome! You were referred by a friend. Launch the Mini App to start earning!")
+    else:
+        await update.message.reply_text("Welcome back! Launch the Mini App to continue earning!")
+    
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
@@ -368,11 +391,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 
 async def main():
-    await init_json()
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    try:
+        await init_json()
+        print("Initializing bot...")
+        await application.initialize()
+        await application.start()
+        print("Starting uvicorn in background thread...")
+        threading.Thread(
+            target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info"),
+            daemon=True
+        ).start()
+        print("Bot polling started successfully!")
+        await application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Startup error: {e}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
