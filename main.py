@@ -245,7 +245,7 @@ async def verify_channel(user_id: int):
 # Mini App HTML
 @app.get("/app")
 async def mini_app():
-    html_content = f"""
+    html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -253,7 +253,7 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_MONETAG_ZONE"></script>
     <style>
         * {
             margin: 0;
@@ -519,13 +519,14 @@ async def mini_app():
             background: #d1d5db;
             color: #6b7280;
             cursor: not-allowed;
+            opacity: 0.7;
+            pointer-events: none;
         }
 
         .break-all {
             word-break: break-all;
         }
 
-        /* Responsive adjustments */
         @media (max-width: 640px) {
             .header h2 {
                 font-size: 1.75rem;
@@ -561,7 +562,7 @@ async def mini_app():
             <p>ID: <span id="user-id"></span></p>
             <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
         </div>
-        <div class="card ad-panel">
+        <div class="card">
             <h3>Earn with Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
             <p>Daily Limit: <span id="daily-limit" class="highlight">0</span>/30</p>
@@ -573,7 +574,7 @@ async def mini_app():
             <h2>Invite Friends</h2>
         </div>
         <div class="card">
-            <p class="invite-label">Your Invite Link:</p>
+            <p>Your Invite Link:</p>
             <p id="invite-link" class="highlight break-all"></p>
             <button class="copy-btn" onclick="copyLink()">Copy Invite Link</button>
             <p>Total Friends: <span id="invited-count" class="highlight">0</span></p>
@@ -584,7 +585,7 @@ async def mini_app():
             <h2>Withdraw</h2>
             <p class="highlight">Minimum 2000 $DOGS</p>
         </div>
-        <div class="card input-group">
+        <div class="card">
             <input type="number" id="amount" placeholder="Enter amount (min 2000)" class="input">
             <input type="text" id="binance-id" placeholder="Enter Binance ID" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
@@ -592,15 +593,15 @@ async def mini_app():
     </div>
     <div class="nav">
         <button class="nav-btn active" onclick="showPage('tasks')">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+            <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
             Tasks
         </button>
         <button class="nav-btn" onclick="showPage('invite')">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m-3 4h.01M9 16h.01"></path></svg>
+            <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m-3 4h.01M9 16h.01"></path></svg>
             Invite
         </button>
         <button class="nav-btn" onclick="showPage('withdraw')">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             Withdraw
         </button>
     </div>
@@ -621,7 +622,6 @@ async def mini_app():
 
         async function loadData() {
             try {
-                // Check cached verification status first
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
                 if (isVerified) {
@@ -630,8 +630,10 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }
 
-                // Fetch user data from API
-                const response = await fetch('/api/user/' + userId);
+                const response = await Promise.race([
+                    fetch('/api/user/' + userId),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                ]);
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
@@ -639,7 +641,6 @@ async def mini_app():
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
-                // Update verification status
                 if (data.channel_verified) {
                     setCachedVerificationStatus(true);
                     overlay.style.display = 'none';
@@ -657,7 +658,10 @@ async def mini_app():
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
-                const response = await fetch('/api/verify_channel/' + userId, { method: 'POST' });
+                const response = await Promise.race([
+                    fetch('/api/verify_channel/' + userId, { method: 'POST' }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                ]);
                 const data = await response.json();
                 if (data.success) {
                     verifyBtn.textContent = 'Verified';
@@ -684,8 +688,11 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await show_{MONETAG_ZONE}().then(async () => {
-                    const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
+                await show_MONETAG_ZONE().then(async () => {
+                    const response = await Promise.race([
+                        fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    ]);
                     const data = await response.json();
                     if (data.success) {
                         tg.showAlert('Ad watched! +20 $DOGS');
@@ -724,11 +731,14 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }
-            const response = await fetch('/api/withdraw/' + userId, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
-            });
+            const response = await Promise.race([
+                fetch('/api/withdraw/' + userId, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({amount, binance_id: binanceId})
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+            ]);
             const data = await response.json();
             if (data.success) {
                 tg.showAlert('Withdraw successful! Credited within 24 hours.');
@@ -746,7 +756,9 @@ async def mini_app():
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
         }
 
         loadData();
@@ -754,7 +766,7 @@ async def mini_app():
 </body>
 </html>
     """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("show_MONETAG_ZONE", f"show_{MONETAG_ZONE}").replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 
 # Telegram webhook
 @app.post("/telegram/webhook")
