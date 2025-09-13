@@ -12,6 +12,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
