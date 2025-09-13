@@ -5,3 +5,4 @@ aiohttp==3.10.5
 python-dotenv==1.0.1
 gunicorn==23.0.0
 python-telegram-bot==21.5
+requests==2.32.3  # Add this: Latest stable for sync HTTP (e.g., token validation)
