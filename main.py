@@ -3,7 +3,6 @@ import json
 import aiofiles
 import aiohttp
 import threading
-import requests
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
