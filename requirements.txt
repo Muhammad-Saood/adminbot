@@ -1,8 +1,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
-python-telegram-bot==21.5
 aiofiles==24.1.0
 aiohttp==3.10.5
 python-dotenv==1.0.1
 gunicorn==23.0.0
-python-telegram-bot[webhooks]==21.5
+python-telegram-bot==21.5
