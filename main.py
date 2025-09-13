@@ -2,6 +2,7 @@ import os
 import json
 import aiofiles
 import aiohttp
+import threading
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
@@ -859,6 +860,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 application.add_handler(CommandHandler("start", start))
+
+            # ----------------- SELF-PINGING TASK -----------------
+PING_INTERVAL = 240  # 4 minutes in seconds
+
+def start_ping_task():
+    async def ping_self():
+        while True:
+            try:
+                if not BASE_URL:
+                    logger.error("BASE_URL is not set, cannot ping self")
+                    await asyncio.sleep(PING_INTERVAL)
+                    continue
+                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
+                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
+                response = requests.get(f"{BASE_URL}/", timeout=10)
+                response.raise_for_status()
+                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
+            except requests.exceptions.Timeout:
+                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
+            except requests.exceptions.ConnectionError:
+                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
+            await asyncio.sleep(PING_INTERVAL)
+
+    async def run_ping():
+        await ping_self()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_ping())
+
+# Start the ping task in a separate thread
+threading.Thread(target=start_ping_task, daemon=True).start()
 
 # Initialize
 async def initialize_app():
