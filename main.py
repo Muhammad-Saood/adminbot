@@ -7,16 +7,15 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 import uvicorn
-import threading
+import threading  # New: For background uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import asyncio
-from typing import Optional, Tuple
+from typing import Optional
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME")  # New: Load bot username from env
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")  # e.g., https://your-app-name.herokuapp.com
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
@@ -28,8 +27,10 @@ app = FastAPI()
 # Initialize JSON file (runs on startup, but not critical if fails)
 async def init_json():
     try:
+        # Touch the file to create if needed
         async with aiofiles.open(USERS_FILE, mode='a') as f:
             pass
+        # Check and initialize empty dict if missing content
         async with aiofiles.open(USERS_FILE, mode='r') as f:
             content = await f.read()
             if not content.strip():
@@ -40,7 +41,7 @@ async def init_json():
         print(f"Warning: Could not initialize JSON file: {e} (will create on first use)")
 
 # User data functions
-async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
+async def get_or_create_user(user_id: int, invited_by: Optional[int] = None):
     users = {}
     file_exists = False
     try:
@@ -55,8 +56,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         print(f"Error reading users.json: {e}")
     
     user_id_str = str(user_id)
-    is_new = user_id_str not in users  # New: Track if user is newly created
-    if is_new:
+    if user_id_str not in users:
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
@@ -74,7 +74,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         except Exception as e:
             print(f"Error writing new user to JSON: {e}")
     
-    return users[user_id_str], is_new  # New: Return tuple (user, is_new)
+    return users[user_id_str]
 
 async def update_points(user_id: int, points: float):
     try:
@@ -144,6 +144,7 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
             users[user_id_str]["binance_id"] = binance_id
             async with aiofiles.open(USERS_FILE, mode='w') as f:
                 await f.write(json.dumps(users, indent=2))
+            # Notify admin
             await application.bot.send_message(
                 chat_id=ADMIN_CHANNEL_ID,
                 text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
@@ -156,17 +157,16 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str):
 # API endpoints for Mini App
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user, _ = await get_or_create_user(user_id)  # New: Unpack tuple, ignore is_new
+    user = await get_or_create_user(user_id)
     return {
         "points": user["points"],
         "daily_ads_watched": user["daily_ads_watched"],
-        "invited_friends": user["invited_friends"],
-        "invited_by": user.get("invited_by")  # New: Include invited_by
+        "invited_friends": user["invited_friends"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    user, _ = await get_or_create_user(user_id)  # New: Unpack tuple
+    user = await get_or_create_user(user_id)
     today = datetime.now().date().isoformat()
     if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
         return {"success": False, "limit_reached": True}
@@ -176,7 +176,7 @@ async def watch_ad(user_id: int):
     if user.get("invited_by"):
         await update_points(user["invited_by"], 2.0)  # 10% of 20 $DOGS
     
-    user, _ = await get_or_create_user(user_id)  # New: Unpack tuple
+    user = await get_or_create_user(user_id)
     return {
         "success": True,
         "points": user["points"],
@@ -272,7 +272,7 @@ async def mini_app():
             document.getElementById('balance').textContent = data.points.toFixed(2);
             document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
             document.getElementById('invited-count').textContent = data.invited_friends;
-            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/{BOT_USERNAME}?start=' + tg.initDataUnsafe.startParam : 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
+            document.getElementById('invite-link').textContent = tg.initDataUnsafe.startParam ? 'https://t.me/jdsrhukds_bot?start=' + tg.initDataUnsafe.startParam : 'https://t.me/jdsrhukds_bot?start=ref' + userId;
         }}
 
         async function watchAd() {{
@@ -341,12 +341,13 @@ async def mini_app():
             event.target.classList.add('active');
         }}
 
+        // Load initial data
         loadData();
     </script>
 </body>
 </html>
     """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE))
 
 # Telegram bot setup for launching Mini App
 application = Application.builder().token(BOT_TOKEN).build()
@@ -357,15 +358,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].startswith("ref"):
         try:
             invited_by = int(args[0].replace("ref", ""))
+            await add_invited_friend(invited_by)
         except ValueError:
-            invited_by = None
-    
-    # New: Check for existing user and prevent duplicate/self-referrals
-    existing_user, is_new = await get_or_create_user(update.effective_user.id)
-    if is_new and invited_by and invited_by != update.effective_user.id and existing_user.get("invited_by") is None:
-        await get_or_create_user(update.effective_user.id, invited_by)  # Set invited_by
-        await add_invited_friend(invited_by)  # Increment referrer's count
-    
+            pass
+    await get_or_create_user(update.effective_user.id, invited_by)
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Launch the Mini App!", reply_markup=reply_markup)
@@ -373,12 +369,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 
 async def main():
-    await init_json()
-    await application.initialize()
-    await application.start()
-    # New: Run uvicorn in a separate thread to allow Telegram polling
-    threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT), daemon=True).start()
-    await application.run_polling(drop_pending_updates=True)  # New: Use run_polling instead of updater.start_polling
+    try:
+        await init_json()
+        print("Initializing bot...")
+        await application.initialize()
+        await application.start()
+        print("Starting uvicorn in background thread...")
+        # New: Run uvicorn in daemon thread (non-blocking)
+        threading.Thread(
+            target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info"),
+            daemon=True
+        ).start()
+        print("Bot polling started successfully!")
+        # Fixed: Use run_polling instead of deprecated updater
+        await application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Startup error: {e}")
+        raise  # Re-raise for deployment logs
 
 if __name__ == "__main__":
     asyncio.run(main())
