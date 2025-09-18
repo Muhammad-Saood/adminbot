@@ -303,15 +303,6 @@ async def verify_channel(user_id: int):
     return {"success": False, "message": "You must join the channel first"}
 
 # Mini App HTML
-@app.get("/")
-async def root():
-    return {"status": "ok"}
-```
-
-### 8. Update `/app` Endpoint HTML and JavaScript
-**Where**: Replace the existing `/app` endpoint (from `async def mini_app():` to `return HTMLResponse(...)`).
-**Replace with**:
-```python
 @app.get("/app")
 async def mini_app():
     html_content = f"""
