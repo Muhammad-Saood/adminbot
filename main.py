@@ -26,8 +26,8 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "your_adsgram_zone_id")
-TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "your_telega_app_id")
+ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "14987")
+TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "")
 USERS_FILE = "/tmp/users.json"
 
 # Logging
