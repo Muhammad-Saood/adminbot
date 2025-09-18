@@ -314,7 +314,7 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script src="https://partner.adsgram.ai/sdk.js" data-zone="{ADSGRAM_ZONE}"></script>
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
     <script src="https://telega.io/sdk.js" data-app-id="{TELEGA_APP_ID}"></script>
     <style>
         * {
