@@ -2,6 +2,7 @@ import os
 import json
 import aiofiles
 import aiohttp
+import threading
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
@@ -11,23 +12,22 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-from dotenv import load_dotenv
 import requests
-import threading
+from dotenv import load_dotenv
 
 load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "jdsrhukds_bot")
+BOT_USERNAME = "jdsrhukds_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
-MONETAG_ZONE = os.getenv("MONETAG_ZONE", "9859391")
-ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "your_adsgram_zone_id")  # Replace with your Adsgram zone
-TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "your_telega_app_id")  # Replace with your Telega app ID
+MONETAG_ZONE = "9859391"
+ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "your_adsgram_zone_id")
+TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "your_telega_app_id")
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -36,40 +36,6 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 json_lock = asyncio.Lock()
-
-# ----------------- SELF-PINGING TASK -----------------
-PING_INTERVAL = 240  # 4 minutes in seconds
-
-def start_ping_task():
-    async def ping_self():
-        while True:
-            try:
-                if not BASE_URL:
-                    logger.error("BASE_URL is not set, cannot ping self")
-                    await asyncio.sleep(PING_INTERVAL)
-                    continue
-                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
-                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
-                response = requests.get(f"{BASE_URL}/", timeout=10)
-                response.raise_for_status()
-                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
-            except requests.exceptions.Timeout:
-                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
-            except requests.exceptions.ConnectionError:
-                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
-            except Exception as e:
-                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
-            await asyncio.sleep(PING_INTERVAL)
-
-    async def run_ping():
-        await ping_self()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_ping())
-
-# Start the ping task in a separate thread
-threading.Thread(target=start_ping_task, daemon=True).start()
 
 # JSON utils
 async def read_json() -> Dict[str, Any]:
@@ -216,11 +182,6 @@ async def verify_channel_membership(user_id: int) -> bool:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
         return False
 
-# Root endpoint for self-ping
-@app.get("/")
-async def root():
-    return {"status": "ok"}
-
 # Debug endpoint to inspect JSON
 @app.get("/debug/users")
 async def debug_users():
@@ -262,6 +223,7 @@ async def watch_monetag_ad(user_id: int):
     
     invited_by = user.get("invited_by")
     if invited_by:
+        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
     
     user = await get_user_data(user_id)
@@ -287,6 +249,7 @@ async def watch_adsgram_ad(user_id: int):
     
     invited_by = user.get("invited_by")
     if invited_by:
+        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
     
     user = await get_user_data(user_id)
@@ -312,6 +275,7 @@ async def watch_telega_ad(user_id: int):
     
     invited_by = user.get("invited_by")
     if invited_by:
+        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
     
     user = await get_user_data(user_id)
@@ -338,7 +302,16 @@ async def verify_channel(user_id: int):
         return {"success": True, "message": "Channel membership verified"}
     return {"success": False, "message": "You must join the channel first"}
 
-# Mini App HTML (Tasks page with 3 ad cards, no style)
+# Mini App HTML
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+```
+
+### 8. Update `/app` Endpoint HTML and JavaScript
+**Where**: Replace the existing `/app` endpoint (from `async def mini_app():` to `return HTMLResponse(...)`).
+**Replace with**:
+```python
 @app.get("/app")
 async def mini_app():
     html_content = f"""
@@ -711,7 +684,7 @@ async def mini_app():
     <div id="invite" class="page">
         <div class="header">
             <h2>Invite Friends</h2>
-            <p class="small-text">Invite friends by using the link given below and get 10% bonus from friend</p>
+            <p class="small-text">Invite friends by using the link given below and get 10% bonus of friends earning</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
@@ -801,7 +774,7 @@ async def mini_app():
             verifyBtn.disabled = true;
             try {
                 const response = await Promise.race([
-                    fetch('/api/verify_channel/' + userId, {{ method: 'POST' }}),
+                    fetch('/api/verify_channel/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
@@ -828,9 +801,9 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await window[`show_${MONETAG_ZONE}`]().then(async () => {
+                await window[`show_{MONETAG_ZONE}`]().then(async () => {
                     const response = await Promise.race([
-                        fetch('/api/watch_ad/' + userId, {{ method: 'POST' }}),
+                        fetch('/api/watch_ad/' + userId, { method: 'POST' }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                     ]);
                     const data = await response.json();
@@ -863,7 +836,7 @@ async def mini_app():
             try {
                 await adsgram.showAd().then(async () => {
                     const response = await Promise.race([
-                        fetch('/api/watch_adsgram/' + userId, {{ method: 'POST' }}),
+                        fetch('/api/watch_adsgram/' + userId, { method: 'POST' }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                     ]);
                     const data = await response.json();
@@ -896,7 +869,7 @@ async def mini_app():
             try {
                 await telega.showAd().then(async () => {
                     const response = await Promise.race([
-                        fetch('/api/watch_telega/' + userId, {{ method: 'POST' }}),
+                        fetch('/api/watch_telega/' + userId, { method: 'POST' }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                     ]);
                     const data = await response.json();
@@ -991,44 +964,8 @@ async def mini_app():
 </body>
 </html>
 """
-    return HTMLResponse(html_content)
-```
-
-# Telegram Bot handlers
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    invited_by = None
-    if context.args and context.args[0].startswith("ref"):
-        try:
-            invited_by = int(context.args[0].replace("ref", ""))
-        except ValueError:
-            pass
-    user_id = update.effective_user.id
-    await get_or_create_user(user_id, invited_by)
-    if invited_by:
-        await add_invited_friend(invited_by)
-        await update_points(invited_by, 200.0)
-    web_app_url = f"{BASE_URL}/app"
-    keyboard = [
-        [InlineKeyboardButton("Open DOGS Earn App", web_app=WebAppInfo(url=web_app_url))]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Welcome to DOGS Earn App! Click below to start earning.",
-        reply_markup=reply_markup
-    )
-
-async def set_webhook():
-    webhook_url = f"{BASE_URL}/telegram/webhook"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-            json={"url": webhook_url}
-        ) as resp:
-            if resp.status == 200:
-                logger.info(f"Webhook set: {webhook_url}")
-            else:
-                logger.error(f"Failed to set webhook: {await resp.text()}")
-
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{ADSGRAM_ZONE}", ADSGRAM_ZONE).replace("{TELEGA_APP_ID}", TELEGA_APP_ID).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
+# Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     update_json = await request.json()
@@ -1036,21 +973,107 @@ async def telegram_webhook(request: Request):
     await application.process_update(update)
     return {"ok": True}
 
+@app.get("/set-webhook")
+async def set_webhook():
+    if not BASE_URL:
+        raise HTTPException(status_code=400, detail="BASE_URL not set")
+    webhook_url = f"{BASE_URL}/telegram/webhook"
+    try:
+        await application.bot.set_webhook(webhook_url)
+        return {"status": "set", "url": webhook_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Bot handlers
 application = Application.builder().token(BOT_TOKEN).build()
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"/start by {update.effective_user.id}, args: {context.args}")
+    args = context.args
+    invited_by = None
+    if args and args[0].startswith("ref"):
+        try:
+            invited_by = int(args[0].replace("ref", ""))
+        except ValueError:
+            invited_by = None
+    
+    user, is_new = await get_or_create_user(update.effective_user.id, invited_by)
+    
+    if is_new and invited_by and invited_by != update.effective_user.id:
+        await add_invited_friend(invited_by)
+        logger.info(f"New referral: {update.effective_user.id} by {invited_by}")
+        welcome_text = "Welcome! Referred by a friend. Launch Mini App!"
+    else:
+        welcome_text = "Welcome back! Launch Mini App!"
+    
+    keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+
 application.add_handler(CommandHandler("start", start))
 
-# Initialize and run
-async def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN is not set")
-        raise ValueError("BOT_TOKEN is not set")
-    logger.info("BOT_TOKEN validated")
+            # ----------------- SELF-PINGING TASK -----------------
+PING_INTERVAL = 240  # 4 minutes in seconds
+
+def start_ping_task():
+    async def ping_self():
+        while True:
+            try:
+                if not BASE_URL:
+                    logger.error("BASE_URL is not set, cannot ping self")
+                    await asyncio.sleep(PING_INTERVAL)
+                    continue
+                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
+                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
+                response = requests.get(f"{BASE_URL}/", timeout=10)
+                response.raise_for_status()
+                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
+            except requests.exceptions.Timeout:
+                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
+            except requests.exceptions.ConnectionError:
+                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
+            await asyncio.sleep(PING_INTERVAL)
+
+    async def run_ping():
+        await ping_self()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_ping())
+
+# Start the ping task in a separate thread
+threading.Thread(target=start_ping_task, daemon=True).start()
+
+# Initialize
+async def initialize_app():
+    await validate_token()
     await init_json()
-    await set_webhook()
     await application.initialize()
-    await application.start()
+    if BASE_URL:
+        webhook_url = f"{BASE_URL}/telegram/webhook"
+        await application.bot.set_webhook(webhook_url)
+        logger.info(f"Webhook set: {webhook_url}")
+    else:
+        logger.warning("BASE_URL not set - set manually via /set-webhook")
+
+async def validate_token():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN not set")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
+            if resp.status != 200:
+                raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
+    logger.info("BOT_TOKEN validated")
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    if not BOT_TOKEN:
+        raise RuntimeError("Missing BOT_TOKEN")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(initialize_app())
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info", workers=1)
+    finally:
+        loop.close()
