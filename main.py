@@ -305,7 +305,7 @@ async def verify_channel(user_id: int):
 # Mini App HTML
 @app.get("/app")
 async def mini_app():
-    html_content = f"""
+    html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
