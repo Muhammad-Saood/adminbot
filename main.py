@@ -2,7 +2,6 @@ import os
 import json
 import aiofiles
 import aiohttp
-import threading
 import datetime as dt
 from typing import Optional, Dict, Any, Tuple
 import logging
@@ -12,20 +11,23 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-import requests
 from dotenv import load_dotenv
+import requests
+import threading
 
 load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = "jdsrhukds_bot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "jdsrhukds_bot")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
-MONETAG_ZONE = "9859391"
+MONETAG_ZONE = os.getenv("MONETAG_ZONE", "9859391")
+ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "your_adsgram_zone_id")  # Replace with your Adsgram zone
+TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "your_telega_app_id")  # Replace with your Telega app ID
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -34,6 +36,40 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 json_lock = asyncio.Lock()
+
+# ----------------- SELF-PINGING TASK -----------------
+PING_INTERVAL = 240  # 4 minutes in seconds
+
+def start_ping_task():
+    async def ping_self():
+        while True:
+            try:
+                if not BASE_URL:
+                    logger.error("BASE_URL is not set, cannot ping self")
+                    await asyncio.sleep(PING_INTERVAL)
+                    continue
+                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
+                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
+                response = requests.get(f"{BASE_URL}/", timeout=10)
+                response.raise_for_status()
+                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
+            except requests.exceptions.Timeout:
+                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
+            except requests.exceptions.ConnectionError:
+                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
+            await asyncio.sleep(PING_INTERVAL)
+
+    async def run_ping():
+        await ping_self()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_ping())
+
+# Start the ping task in a separate thread
+threading.Thread(target=start_ping_task, daemon=True).start()
 
 # JSON utils
 async def read_json() -> Dict[str, Any]:
@@ -76,7 +112,9 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
-            "daily_ads_watched": 0,
+            "monetag_daily_ads_watched": 0,
+            "adsgram_daily_ads_watched": 0,
+            "telega_daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
             "binance_id": None,
@@ -105,21 +143,24 @@ async def update_points(user_id: int, points: float):
     else:
         logger.error(f"Cannot update points: user {user_id} not found")
 
-async def update_daily_ads(user_id: int, ads_watched: int):
+async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
     today = dt.datetime.now().date().isoformat()
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
         user_data = users[user_id_str]
         if user_data["last_ad_date"] == today:
-            user_data["daily_ads_watched"] += ads_watched
+            user_data[f"{platform}_daily_ads_watched"] += ads_watched
         else:
-            user_data["daily_ads_watched"] = ads_watched
+            user_data["monetag_daily_ads_watched"] = 0
+            user_data["adsgram_daily_ads_watched"] = 0
+            user_data["telega_daily_ads_watched"] = 0
+            user_data[f"{platform}_daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
-        logger.info(f"Updated ads for {user_id}: {user_data['daily_ads_watched']}/30")
+        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/10")
     else:
-        logger.error(f"Cannot update ads: user {user_id} not found")
+        logger.error(f"Cannot update {platform} ads: user {user_id} not found")
 
 async def add_invited_friend(user_id: int):
     users = await read_json()
@@ -175,6 +216,11 @@ async def verify_channel_membership(user_id: int) -> bool:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
         return False
 
+# Root endpoint for self-ping
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
 # Debug endpoint to inspect JSON
 @app.get("/debug/users")
 async def debug_users():
@@ -190,41 +236,89 @@ async def get_user(user_id: int):
     user = await get_user_data(user_id)
     return {
         "points": user["points"],
-        "daily_ads_watched": user["daily_ads_watched"],
+        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
+        "adsgram_daily_ads_watched": user["adsgram_daily_ads_watched"],
+        "telega_daily_ads_watched": user["telega_daily_ads_watched"],
         "invited_friends": user["invited_friends"],
         "invited_by": None,
         "channel_verified": user["channel_verified"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int):
-    logger.info(f"Ad watch request for {user_id}")
+async def watch_monetag_ad(user_id: int):
+    logger.info(f"Monetag ad watch request for {user_id}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
     
     today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
-        logger.info(f"Ad limit reached for {user_id}")
+    if user["last_ad_date"] == today and user["monetag_daily_ads_watched"] >= 10:
+        logger.info(f"Monetag ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
     
-    await update_daily_ads(user_id, 1)
+    await update_daily_ads(user_id, "monetag", 1)
     await update_points(user_id, 20.0)
     
     invited_by = user.get("invited_by")
-    logger.info(f"Referrer check for {user_id}: invited_by = {invited_by}")
     if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
-    else:
-        logger.info(f"No referrer for {user_id}")
     
     user = await get_user_data(user_id)
     return {
         "success": True,
         "points": user["points"],
-        "daily_ads_watched": user["daily_ads_watched"]
+        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
+    }
+
+@app.post("/api/watch_adsgram/{user_id}")
+async def watch_adsgram_ad(user_id: int):
+    logger.info(f"Adsgram ad watch request for {user_id}")
+    user = await get_user_data(user_id)
+    if not user["channel_verified"]:
+        return {"success": False, "message": "Channel membership not verified"}
+    
+    today = dt.datetime.now().date().isoformat()
+    if user["last_ad_date"] == today and user["adsgram_daily_ads_watched"] >= 10:
+        return {"success": False, "limit_reached": True}
+    
+    await update_daily_ads(user_id, "adsgram", 1)
+    await update_points(user_id, 20.0)
+    
+    invited_by = user.get("invited_by")
+    if invited_by:
+        await update_points(invited_by, 2.0)
+    
+    user = await get_user_data(user_id)
+    return {
+        "success": True,
+        "points": user["points"],
+        "adsgram_daily_ads_watched": user["adsgram_daily_ads_watched"]
+    }
+
+@app.post("/api/watch_telega/{user_id}")
+async def watch_telega_ad(user_id: int):
+    logger.info(f"Telega ad watch request for {user_id}")
+    user = await get_user_data(user_id)
+    if not user["channel_verified"]:
+        return {"success": False, "message": "Channel membership not verified"}
+    
+    today = dt.datetime.now().date().isoformat()
+    if user["last_ad_date"] == today and user["telega_daily_ads_watched"] >= 10:
+        return {"success": False, "limit_reached": True}
+    
+    await update_daily_ads(user_id, "telega", 1)
+    await update_points(user_id, 20.0)
+    
+    invited_by = user.get("invited_by")
+    if invited_by:
+        await update_points(invited_by, 2.0)
+    
+    user = await get_user_data(user_id)
+    return {
+        "success": True,
+        "points": user["points"],
+        "telega_daily_ads_watched": user["telega_daily_ads_watched"]
     }
 
 @app.post("/api/withdraw/{user_id}")
@@ -244,10 +338,10 @@ async def verify_channel(user_id: int):
         return {"success": True, "message": "Channel membership verified"}
     return {"success": False, "message": "You must join the channel first"}
 
-# Mini App HTML
+# Mini App HTML (Tasks page with 3 ad cards, no style)
 @app.get("/app")
 async def mini_app():
-    html_content = """
+    html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -255,7 +349,9 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_MONETAG_ZONE"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <script src="https://partner.adsgram.ai/sdk.js" data-zone="{ADSGRAM_ZONE}"></script>
+    <script src="https://telega.io/sdk.js" data-app-id="{TELEGA_APP_ID}"></script>
     <style>
         * {
             margin: 0;
@@ -587,23 +683,35 @@ async def mini_app():
             <button id="verify-btn" class="btn-primary">Verify</button>
         </div>
     </div>
-    <div id="Menu" class="page active">
+    <div id="tasks" class="page active">
         <div class="header">
-            <h2>Account Info</h2>
+            <h2>Tasks</h2>
             <p>ID: <span id="user-id"></span></p>
             <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
         </div>
-        <div class="card">
-            <h3>Earn with Ads</h3>
+        <div class="card monetag-card">
+            <h3>Monetag Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
-            <p>Daily Limit: <span id="daily-limit" class="highlight">0</span></p>
-            <button class="watch-btn" id="watch-ad-btn">Watch Ad</button>
+            <p>Daily Limit: <span id="monetag-limit" class="highlight">0</span>/10</p>
+            <button class="watch-btn" id="monetag-ad-btn">Watch Monetag Ad</button>
+        </div>
+        <div class="card adsgram-card">
+            <h3>Adsgram Ads</h3>
+            <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
+            <p>Daily Limit: <span id="adsgram-limit" class="highlight">0</span>/10</p>
+            <button class="watch-btn" id="adsgram-ad-btn">Watch Adsgram Ad</button>
+        </div>
+        <div class="card telega-card">
+            <h3>Telega Ads</h3>
+            <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
+            <p>Daily Limit: <span id="telega-limit" class="highlight">0</span>/10</p>
+            <button class="watch-btn" id="telega-ad-btn">Watch Telega Ad</button>
         </div>
     </div>
     <div id="invite" class="page">
         <div class="header">
             <h2>Invite Friends</h2>
-            <p class="small-text">Invite friends by using the link given below and get 10% bonus of friends earning</p>
+            <p class="small-text">Invite friends by using the link given below and get 10% bonus from friend</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
@@ -624,7 +732,7 @@ async def mini_app():
         </div>
     </div>
     <div class="nav">
-        <button class="nav-btn active" onclick="showPage('Menu')" data-page="Menu">
+        <button class="nav-btn active" onclick="showPage('tasks')" data-page="tasks">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
             Tasks
         </button>
@@ -669,7 +777,9 @@ async def mini_app():
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+                document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/10';
+                document.getElementById('adsgram-limit').textContent = data.adsgram_daily_ads_watched + '/10';
+                document.getElementById('telega-limit').textContent = data.telega_daily_ads_watched + '/10';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -691,7 +801,7 @@ async def mini_app():
             verifyBtn.disabled = true;
             try {
                 const response = await Promise.race([
-                    fetch('/api/verify_channel/' + userId, { method: 'POST' }),
+                    fetch('/api/verify_channel/' + userId, {{ method: 'POST' }}),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
@@ -713,42 +823,104 @@ async def mini_app():
             }
         }
 
-        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
-
-        async function watchAd() {
-            const watchBtn = document.getElementById('watch-ad-btn');
+        async function watchMonetagAd() {
+            const watchBtn = document.getElementById('monetag-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await show_MONETAG_ZONE().then(async () => {
+                await window[`show_${MONETAG_ZONE}`]().then(async () => {
                     const response = await Promise.race([
-                        fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                        fetch('/api/watch_ad/' + userId, {{ method: 'POST' }}),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                     ]);
                     const data = await response.json();
                     if (data.success) {
-                        tg.showAlert('Ad watched! +20 $DOGS');
+                        tg.showAlert('Monetag ad watched! +20 $DOGS');
                     } else if (data.limit_reached) {
-                        tg.showAlert('Daily limit reached!');
+                        tg.showAlert('Monetag daily limit reached!');
                     } else if (data.message === 'Channel membership not verified') {
                         tg.showAlert('Please verify channel membership first!');
                         setCachedVerificationStatus(false);
                         document.getElementById('verify-overlay').style.display = 'flex';
                     } else {
-                        tg.showAlert('Error watching ad');
+                        tg.showAlert('Error watching Monetag ad');
                     }
                     await loadData();
                 }).catch(error => {
-                    tg.showAlert('Ad failed to load');
+                    tg.showAlert('Monetag ad failed to load');
                     console.error('Monetag error:', error);
                 });
             } finally {
                 watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Ad';
+                watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
 
-        document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
+        async function watchAdsgramAd() {
+            const watchBtn = document.getElementById('adsgram-ad-btn');
+            watchBtn.disabled = true;
+            watchBtn.textContent = 'Watching...';
+            try {
+                await adsgram.showAd().then(async () => {
+                    const response = await Promise.race([
+                        fetch('/api/watch_adsgram/' + userId, {{ method: 'POST' }}),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    ]);
+                    const data = await response.json();
+                    if (data.success) {
+                        tg.showAlert('Adsgram ad watched! +20 $DOGS');
+                    } else if (data.limit_reached) {
+                        tg.showAlert('Adsgram daily limit reached!');
+                    } else if (data.message === 'Channel membership not verified') {
+                        tg.showAlert('Please verify channel membership first!');
+                        setCachedVerificationStatus(false);
+                        document.getElementById('verify-overlay').style.display = 'flex';
+                    } else {
+                        tg.showAlert('Error watching Adsgram ad');
+                    }
+                    await loadData();
+                }).catch(error => {
+                    tg.showAlert('Adsgram ad failed to load');
+                    console.error('Adsgram error:', error);
+                });
+            } finally {
+                watchBtn.disabled = false;
+                watchBtn.textContent = 'Watch Adsgram Ad';
+            }
+        }
+
+        async function watchTelegaAd() {
+            const watchBtn = document.getElementById('telega-ad-btn');
+            watchBtn.disabled = true;
+            watchBtn.textContent = 'Watching...';
+            try {
+                await telega.showAd().then(async () => {
+                    const response = await Promise.race([
+                        fetch('/api/watch_telega/' + userId, {{ method: 'POST' }}),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    ]);
+                    const data = await response.json();
+                    if (data.success) {
+                        tg.showAlert('Telega ad watched! +20 $DOGS');
+                    } else if (data.limit_reached) {
+                        tg.showAlert('Telega daily limit reached!');
+                    } else if (data.message === 'Channel membership not verified') {
+                        tg.showAlert('Please verify channel membership first!');
+                        setCachedVerificationStatus(false);
+                        document.getElementById('verify-overlay').style.display = 'flex';
+                    } else {
+                        tg.showAlert('Error watching Telega ad');
+                    }
+                    await loadData();
+                }).catch(error => {
+                    tg.showAlert('Telega ad failed to load');
+                    console.error('Telega error:', error);
+                });
+            } finally {
+                watchBtn.disabled = false;
+                watchBtn.textContent = 'Watch Telega Ad';
+            }
+        }
 
         async function copyLink() {
             try {
@@ -810,13 +982,53 @@ async def mini_app():
             }
         }
 
+        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
+        document.getElementById('monetag-ad-btn').addEventListener('click', watchMonetagAd);
+        document.getElementById('adsgram-ad-btn').addEventListener('click', watchAdsgramAd);
+        document.getElementById('telega-ad-btn').addEventListener('click', watchTelegaAd);
         loadData();
     </script>
 </body>
 </html>
-    """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("show_MONETAG_ZONE", f"show_{MONETAG_ZONE}").replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
-# Telegram webhook
+"""
+    return HTMLResponse(html_content)
+```
+
+# Telegram Bot handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    invited_by = None
+    if context.args and context.args[0].startswith("ref"):
+        try:
+            invited_by = int(context.args[0].replace("ref", ""))
+        except ValueError:
+            pass
+    user_id = update.effective_user.id
+    await get_or_create_user(user_id, invited_by)
+    if invited_by:
+        await add_invited_friend(invited_by)
+        await update_points(invited_by, 200.0)
+    web_app_url = f"{BASE_URL}/app"
+    keyboard = [
+        [InlineKeyboardButton("Open DOGS Earn App", web_app=WebAppInfo(url=web_app_url))]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Welcome to DOGS Earn App! Click below to start earning.",
+        reply_markup=reply_markup
+    )
+
+async def set_webhook():
+    webhook_url = f"{BASE_URL}/telegram/webhook"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            json={"url": webhook_url}
+        ) as resp:
+            if resp.status == 200:
+                logger.info(f"Webhook set: {webhook_url}")
+            else:
+                logger.error(f"Failed to set webhook: {await resp.text()}")
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     update_json = await request.json()
@@ -824,107 +1036,21 @@ async def telegram_webhook(request: Request):
     await application.process_update(update)
     return {"ok": True}
 
-@app.get("/set-webhook")
-async def set_webhook():
-    if not BASE_URL:
-        raise HTTPException(status_code=400, detail="BASE_URL not set")
-    webhook_url = f"{BASE_URL}/telegram/webhook"
-    try:
-        await application.bot.set_webhook(webhook_url)
-        return {"status": "set", "url": webhook_url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Bot handlers
 application = Application.builder().token(BOT_TOKEN).build()
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"/start by {update.effective_user.id}, args: {context.args}")
-    args = context.args
-    invited_by = None
-    if args and args[0].startswith("ref"):
-        try:
-            invited_by = int(args[0].replace("ref", ""))
-        except ValueError:
-            invited_by = None
-    
-    user, is_new = await get_or_create_user(update.effective_user.id, invited_by)
-    
-    if is_new and invited_by and invited_by != update.effective_user.id:
-        await add_invited_friend(invited_by)
-        logger.info(f"New referral: {update.effective_user.id} by {invited_by}")
-        welcome_text = "Welcome! Referred by a friend. Launch Mini App!"
-    else:
-        welcome_text = "Welcome back! Launch Mini App!"
-    
-    keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-
 application.add_handler(CommandHandler("start", start))
 
-            # ----------------- SELF-PINGING TASK -----------------
-PING_INTERVAL = 240  # 4 minutes in seconds
-
-def start_ping_task():
-    async def ping_self():
-        while True:
-            try:
-                if not BASE_URL:
-                    logger.error("BASE_URL is not set, cannot ping self")
-                    await asyncio.sleep(PING_INTERVAL)
-                    continue
-                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
-                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
-                response = requests.get(f"{BASE_URL}/", timeout=10)
-                response.raise_for_status()
-                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
-            except requests.exceptions.Timeout:
-                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
-            except requests.exceptions.ConnectionError:
-                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
-            except Exception as e:
-                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
-            await asyncio.sleep(PING_INTERVAL)
-
-    async def run_ping():
-        await ping_self()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_ping())
-
-# Start the ping task in a separate thread
-threading.Thread(target=start_ping_task, daemon=True).start()
-
-# Initialize
-async def initialize_app():
-    await validate_token()
-    await init_json()
-    await application.initialize()
-    if BASE_URL:
-        webhook_url = f"{BASE_URL}/telegram/webhook"
-        await application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set: {webhook_url}")
-    else:
-        logger.warning("BASE_URL not set - set manually via /set-webhook")
-
-async def validate_token():
+# Initialize and run
+async def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN not set")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
-            if resp.status != 200:
-                raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
+        logger.error("BOT_TOKEN is not set")
+        raise ValueError("BOT_TOKEN is not set")
     logger.info("BOT_TOKEN validated")
+    await init_json()
+    await set_webhook()
+    await application.initialize()
+    await application.start()
 
 if __name__ == "__main__":
-    if not BOT_TOKEN:
-        raise RuntimeError("Missing BOT_TOKEN")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(initialize_app())
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info", workers=1)
-    finally:
-        loop.close()
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
