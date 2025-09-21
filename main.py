@@ -19,7 +19,7 @@ load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "clicktoearn5_bot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "clicktoearn5_bot")  # Replace with your new bot name
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
@@ -206,7 +206,7 @@ async def debug_users():
 # API endpoints
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     return {
         "points": user["points"],
         "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
@@ -222,7 +222,7 @@ async def get_user(user_id: int):
 @app.post("/api/watch_ad/{user_id}")
 async def watch_monetag_ad(user_id: int):
     logger.info(f"Monetag ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
@@ -250,7 +250,7 @@ async def watch_monetag_ad(user_id: int):
 @app.post("/api/watch_adsgram/{user_id}")
 async def watch_adsgram_ad(user_id: int):
     logger.info(f"Adsgram ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
     
@@ -276,7 +276,7 @@ async def watch_adsgram_ad(user_id: int):
 @app.post("/api/watch_telega/{user_id}")
 async def watch_telega_ad(user_id: int):
     logger.info(f"Telega ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
     
@@ -302,7 +302,7 @@ async def watch_telega_ad(user_id: int):
 @app.post("/api/watch_gigapub/{user_id}")
 async def watch_gigapub_ad(user_id: int):
     logger.info(f"GigaPub ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
     
@@ -328,7 +328,7 @@ async def watch_gigapub_ad(user_id: int):
 @app.post("/api/watch_adexium/{user_id}")
 async def watch_adexium_ad(user_id: int):
     logger.info(f"Adexium ad watch request for {user_id}")
-    user, _ = await get_or_create_user(user_id)  # Create user if not found
+    user, _ = await get_or_create_user(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
     
@@ -392,7 +392,7 @@ async def mini_app():
         // Initialize Adexium Widget
         document.addEventListener('DOMContentLoaded', () => {{
             const adexiumWidget = new AdexiumWidget({{wid: '{ADEXIUM_WID}', adFormat: 'interstitial'}});
-            window.adexiumWidget = adexiumWidget; // Store for global access
+            window.adexiumWidget = adexiumWidget;
         }});
     </script>
     <style>
@@ -825,10 +825,11 @@ async def mini_app():
 
                 const response = await Promise.race([
                     fetch('/api/user/' + userId),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                 ]);
-                if (!response.ok) throw new Error('API failed: ' + response.status);
+                if (!response.ok) throw new Error('API failed: ' + response.status + ' ' + response.statusText);
                 const data = await response.json();
+                console.log('User data:', data);
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/6';
                 document.getElementById('adsgram-limit').textContent = data.adsgram_daily_ads_watched + '/6';
@@ -846,8 +847,8 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }}
             }} catch (error) {{
-                console.error('loadData error:', error);
-                tg.showAlert('Failed to load data');
+                console.error('loadData error:', error.message, error.stack);
+                tg.showAlert('Failed to load data: ' + error.message);
             }}
         }}
 
@@ -857,7 +858,7 @@ async def mini_app():
             try {{
                 const response = await Promise.race([
                     fetch('/api/verify_channel/' + userId, {{ method: 'POST' }}),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                 ]);
                 const data = await response.json();
                 if (data.success) {{
@@ -886,7 +887,7 @@ async def mini_app():
                 await window[`show_{MONETAG_ZONE}`]().then(async () => {{
                     const response = await Promise.race([
                         fetch('/api/watch_ad/' + userId, {{ method: 'POST' }}),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                     ]);
                     const data = await response.json();
                     if (data.success) {{
@@ -921,7 +922,7 @@ async def mini_app():
                     if (result.done) {{
                         const response = await Promise.race([
                             fetch('/api/watch_adsgram/' + userId, {{ method: 'POST' }}),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                         ]);
                         const data = await response.json();
                         if (data.success) {{
@@ -955,7 +956,7 @@ async def mini_app():
                 await ads.ad_show({{ adBlockUuid: '{TELEGA_ADBLOCK_UUID}' }}).then(async () => {{
                     const response = await Promise.race([
                         fetch('/api/watch_telega/' + userId, {{ method: 'POST' }}),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                     ]);
                     const data = await response.json();
                     if (data.success) {{
@@ -988,7 +989,7 @@ async def mini_app():
                 await window.showGiga().then(async () => {{
                     const response = await Promise.race([
                         fetch('/api/watch_gigapub/' + userId, {{ method: 'POST' }}),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                     ]);
                     const data = await response.json();
                     if (data.success) {{
@@ -1021,7 +1022,7 @@ async def mini_app():
                 await window.adexiumWidget.show().then(async () => {{
                     const response = await Promise.race([
                         fetch('/api/watch_adexium/' + userId, {{ method: 'POST' }}),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
                     ]);
                     const data = await response.json();
                     if (data.success) {{
@@ -1070,7 +1071,7 @@ async def mini_app():
                     headers: {{'Content-Type': 'application/json'}},
                     body: JSON.stringify({{amount, binance_id: binanceId}})
                 }}),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
             ]);
             const data = await response.json();
             if (data.success) {{
