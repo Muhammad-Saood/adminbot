@@ -19,17 +19,18 @@ load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = "clicktoearn5_bot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "clicktoearn5_bot")
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
-MONETAG_ZONE = "9859391"
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "14987")  # Replace with your actual block ID from partner.adsgram.ai
-TELEGA_CAMPAIGN_ID = os.getenv("TELEGA_CAMPAIGN_ID", "3e3f9a77-422b-4ba1-99aa-51fcb1dc0091")  # Placeholder; replace if Telega provides a campaign ID
-GIGAPUB_ID = os.getenv("GIGAPUB_ID", "3185")  # From GigaPub script src
-ADEXIUM_WID = os.getenv("ADEXIUM_WID", "7de35f31-1b0a-4dbd-8132-d9b725c40e38")  # From Adexium widget
+MONETAG_ZONE = os.getenv("MONETAG_ZONE", "9859391")
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "14987")
+TELEGA_TOKEN = os.getenv("TELEGA_TOKEN", "3e3f9a77-422b-4ba1-99aa-51fcb1dc0091")
+TELEGA_ADBLOCK_UUID = os.getenv("TELEGA_ADBLOCK_UUID", "23176662-16b2-443b-96a2-c3346dfe34ea")
+GIGAPUB_ID = os.getenv("GIGAPUB_ID", "3185")
+ADEXIUM_WID = os.getenv("ADEXIUM_WID", "7de35f31-1b0a-4dbd-8132-d9b725c40e38")
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -187,6 +188,11 @@ async def verify_channel_membership(user_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
         return False
+
+# Root endpoint for self-pinging
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "DOGS Earn App is running"}
 
 # Debug endpoint to inspect JSON
 @app.get("/debug/users")
@@ -372,7 +378,6 @@ async def mini_app():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
@@ -1114,12 +1119,13 @@ async def mini_app():
 """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE)
                        .replace("{ADSGRAM_BLOCK_ID}", ADSGRAM_BLOCK_ID)
-                       .replace("{TELEGA_TOKEN}", "3e3f9a77-422b-4ba1-99aa-51fcb1dc0091")
-                       .replace("{TELEGA_ADBLOCK_UUID}", "23176662-16b2-443b-96a2-c3346dfe34ea")
+                       .replace("{TELEGA_TOKEN}", TELEGA_TOKEN)
+                       .replace("{TELEGA_ADBLOCK_UUID}", TELEGA_ADBLOCK_UUID)
                        .replace("{GIGAPUB_ID}", GIGAPUB_ID)
                        .replace("{ADEXIUM_WID}", ADEXIUM_WID)
                        .replace("{BOT_USERNAME}", BOT_USERNAME)
                        .replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
+
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
@@ -1167,7 +1173,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-            # ----------------- SELF-PINGING TASK -----------------
+# Self-pinging task
 PING_INTERVAL = 240  # 4 minutes in seconds
 
 def start_ping_task():
