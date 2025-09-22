@@ -26,7 +26,7 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "14987")  # Replace with your actual block ID from partner.adsgram.ai
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "int-15169")  # Replace with your actual block ID from partner.adsgram.ai
 TELEGA_CAMPAIGN_ID = os.getenv("TELEGA_CAMPAIGN_ID", "")  # Placeholder; replace if Telega provides a campaign ID
 USERS_FILE = "/tmp/users.json"
 
