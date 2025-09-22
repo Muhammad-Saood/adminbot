@@ -32,9 +32,16 @@ TELEGA_ADBLOCK_UUID = os.getenv("TELEGA_ADBLOCK_UUID", "23176662-16b2-443b-96a2-
 GIGAPUB_ID = os.getenv("GIGAPUB_ID", "3185")
 ADEXIUM_WID = os.getenv("ADEXIUM_WID", "7de35f31-1b0a-4dbd-8132-d9b725c40e38")
 USERS_FILE = "/tmp/users.json"
+
 # Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# Validate environment variables
+required_env_vars = ["BOT_TOKEN", "BASE_URL", "PUBLIC_CHANNEL_USERNAME"]
+for var in required_env_vars:
+    if not os.getenv(var):
+        logger.warning(f"Environment variable {var} is not set")
 
 app = FastAPI()
 json_lock = asyncio.Lock()
@@ -49,7 +56,7 @@ async def read_json() -> Dict[str, Any]:
                     return json.loads(content)
                 return {}
         except FileNotFoundError:
-            logger.warning(f"{USERS_FILE} not found")
+            logger.warning(f"{USERS_FILE} not found, creating new file")
             return {}
         except Exception as e:
             logger.error(f"Error reading {USERS_FILE}: {e}")
@@ -57,8 +64,12 @@ async def read_json() -> Dict[str, Any]:
 
 async def write_json(users: Dict[str, Any]):
     async with json_lock:
-        async with aiofiles.open(USERS_FILE, mode='w') as f:
-            await f.write(json.dumps(users, indent=2))
+        try:
+            async with aiofiles.open(USERS_FILE, mode='w') as f:
+                await f.write(json.dumps(users, indent=2))
+        except Exception as e:
+            logger.error(f"Error writing to {USERS_FILE}: {e}")
+            raise
 
 async def init_json():
     try:
@@ -97,69 +108,89 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
     return users[user_id_str], is_new
 
 async def get_user_data(user_id: int) -> dict:
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        return users[user_id_str]
-    raise ValueError(f"User {user_id} not found")
+    try:
+        users = await read_json()
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            return users[user_id_str]
+        raise ValueError(f"User {user_id} not found")
+    except Exception as e:
+        logger.error(f"Error in get_user_data for {user_id}: {e}")
+        raise
 
 async def update_points(user_id: int, points: float):
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["points"] += points
-        await write_json(users)
-        logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
-    else:
-        logger.error(f"Cannot update points: user {user_id} not found")
+    try:
+        users = await read_json()
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            users[user_id_str]["points"] += points
+            await write_json(users)
+            logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
+        else:
+            logger.error(f"Cannot update points: user {user_id} not found")
+    except Exception as e:
+        logger.error(f"Error updating points for {user_id}: {e}")
+        raise
 
 async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
-    today = dt.datetime.now().date().isoformat()
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        user_data = users[user_id_str]
-        if user_data["last_ad_date"] == today:
-            user_data[f"{platform}_daily_ads_watched"] += ads_watched
+    try:
+        today = dt.datetime.now().date().isoformat()
+        users = await read_json()
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            user_data = users[user_id_str]
+            if user_data["last_ad_date"] == today:
+                user_data[f"{platform}_daily_ads_watched"] += ads_watched
+            else:
+                user_data["monetag_daily_ads_watched"] = 0
+                user_data["adsgram_daily_ads_watched"] = 0
+                user_data["telega_daily_ads_watched"] = 0
+                user_data["gigapub_daily_ads_watched"] = 0
+                user_data["adexium_daily_ads_watched"] = 0
+                user_data[f"{platform}_daily_ads_watched"] = ads_watched
+                user_data["last_ad_date"] = today
+            await write_json(users)
+            logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/6")
         else:
-            user_data["monetag_daily_ads_watched"] = 0
-            user_data["adsgram_daily_ads_watched"] = 0
-            user_data["telega_daily_ads_watched"] = 0
-            user_data["gigapub_daily_ads_watched"] = 0
-            user_data["adexium_daily_ads_watched"] = 0
-            user_data[f"{platform}_daily_ads_watched"] = ads_watched
-            user_data["last_ad_date"] = today
-        await write_json(users)
-        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/6")
-    else:
-        logger.error(f"Cannot update {platform} ads: user {user_id} not found")
+            logger.error(f"Cannot update {platform} ads: user {user_id} not found")
+    except Exception as e:
+        logger.error(f"Error updating daily ads for {user_id}: {e}")
+        raise
 
 async def add_invited_friend(user_id: int):
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["invited_friends"] += 1
-        await write_json(users)
-        logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
-    else:
-        logger.error(f"Cannot add friend: user {user_id} not found")
+    try:
+        users = await read_json()
+        user_id_str = str(user_id)
+        if user_id_str in users:
+            users[user_id_str]["invited_friends"] += 1
+            await write_json(users)
+            logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
+        else:
+            logger.error(f"Cannot add friend: user {user_id} not found")
+    except Exception as e:
+        logger.error(f"Error adding invited friend for {user_id}: {e}")
+        raise
 
 async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users and users[user_id_str]["points"] >= amount:
-        users[user_id_str]["points"] -= amount
-        users[user_id_str]["binance_id"] = binance_id
-        await write_json(users)
-        await application.bot.send_message(
-            chat_id=ADMIN_CHANNEL_ID,
-            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
-        )
-        logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
-        return True
-    else:
-        logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
-    return False
+    try:
+        users = await read_json()
+        user_id_str = str(user_id)
+        if user_id_str in users and users[user_id_str]["points"] >= amount:
+            users[user_id_str]["points"] -= amount
+            users[user_id_str]["binance_id"] = binance_id
+            await write_json(users)
+            await application.bot.send_message(
+                chat_id=ADMIN_CHANNEL_ID,
+                text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+            )
+            logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
+            return True
+        else:
+            logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
+            return False
+    except Exception as e:
+        logger.error(f"Error processing withdrawal for {user_id}: {e}")
+        return False
 
 async def verify_channel_membership(user_id: int) -> bool:
     try:
@@ -182,7 +213,7 @@ async def verify_channel_membership(user_id: int) -> bool:
                         logger.info(f"User {user_id} not a member of channel {PUBLIC_CHANNEL_USERNAME}")
                         return False
                 else:
-                    logger.error(f"Failed to verify channel membership for {user_id}: {await resp.text()}")
+                    logger.error(f"Failed to verify channel membership for {user_id}: HTTP {resp.status}, {await resp.text()}")
                     return False
     except Exception as e:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
@@ -213,158 +244,189 @@ async def get_user(user_id: int):
             "invited_by": None,
             "channel_verified": user["channel_verified"]
         }
+    except ValueError as e:
+        logger.error(f"User {user_id} not found: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error fetching user {user_id}: {e}")
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_monetag_ad(user_id: int):
     logger.info(f"Monetag ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        logger.info(f"User {user_id} not verified for channel membership")
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_daily_ads_watched"] >= 6:
-        logger.info(f"Monetag ad limit reached for {user_id}")
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "monetag", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
-    }
+    try:
+        user = await get_user_data(user_id)
+        if not user["channel_verified"]:
+            logger.info(f"User {user_id} not verified for channel membership")
+            return {"success": False, "message": "Channel membership not verified"}
+        
+        today = dt.datetime.now().date().isoformat()
+        if user["last_ad_date"] == today and user["monetag_daily_ads_watched"] >= 6:
+            logger.info(f"Monetag ad limit reached for {user_id}")
+            return {"success": False, "limit_reached": True}
+        
+        await update_daily_ads(user_id, "monetag", 1)
+        await update_points(user_id, 20.0)
+        
+        invited_by = user.get("invited_by")
+        if invited_by:
+            logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+            await update_points(invited_by, 2.0)
+        
+        user = await get_user_data(user_id)
+        return {
+            "success": True,
+            "points": user["points"],
+            "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
+        }
+    except Exception as e:
+        logger.error(f"Error in watch_monetag_ad for {user_id}: {e}")
+        return {"success": False, "message": "Error watching ad"}
 
 @app.post("/api/watch_adsgram/{user_id}")
 async def watch_adsgram_ad(user_id: int):
     logger.info(f"Adsgram ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["adsgram_daily_ads_watched"] >= 6:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "adsgram", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "adsgram_daily_ads_watched": user["adsgram_daily_ads_watched"]
-    }
+    try:
+        user = await get_user_data(user_id)
+        if not user["channel_verified"]:
+            return {"success": False, "message": "Channel membership not verified"}
+        
+        today = dt.datetime.now().date().isoformat()
+        if user["last_ad_date"] == today and user["adsgram_daily_ads_watched"] >= 6:
+            return {"success": False, "limit_reached": True}
+        
+        await update_daily_ads(user_id, "adsgram", 1)
+        await update_points(user_id, 20.0)
+        
+        invited_by = user.get("invited_by")
+        if invited_by:
+            logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+            await update_points(invited_by, 2.0)
+        
+        user = await get_user_data(user_id)
+        return {
+            "success": True,
+            "points": user["points"],
+            "adsgram_daily_ads_watched": user["adsgram_daily_ads_watched"]
+        }
+    except Exception as e:
+        logger.error(f"Error in watch_adsgram_ad for {user_id}: {e}")
+        return {"success": False, "message": "Error watching ad"}
 
 @app.post("/api/watch_telega/{user_id}")
 async def watch_telega_ad(user_id: int):
     logger.info(f"Telega ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["telega_daily_ads_watched"] >= 6:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "telega", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "telega_daily_ads_watched": user["telega_daily_ads_watched"]
-    }
+    try:
+        user = await get_user_data(user_id)
+        if not user["channel_verified"]:
+            return {"success": False, "message": "Channel membership not verified"}
+        
+        today = dt.datetime.now().date().isoformat()
+        if user["last_ad_date"] == today and user["telega_daily_ads_watched"] >= 6:
+            return {"success": False, "limit_reached": True}
+        
+        await update_daily_ads(user_id, "telega", 1)
+        await update_points(user_id, 20.0)
+        
+        invited_by = user.get("invited_by")
+        if invited_by:
+            logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+            await update_points(invited_by, 2.0)
+        
+        user = await get_user_data(user_id)
+        return {
+            "success": True,
+            "points": user["points"],
+            "telega_daily_ads_watched": user["telega_daily_ads_watched"]
+        }
+    except Exception as e:
+        logger.error(f"Error in watch_telega_ad for {user_id}: {e}")
+        return {"success": False, "message": "Error watching ad"}
 
 @app.post("/api/watch_gigapub/{user_id}")
 async def watch_gigapub_ad(user_id: int):
     logger.info(f"GigaPub ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["gigapub_daily_ads_watched"] >= 6:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "gigapub", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "gigapub_daily_ads_watched": user["gigapub_daily_ads_watched"]
-    }
+    try:
+        user = await get_user_data(user_id)
+        if not user["channel_verified"]:
+            return {"success": False, "message": "Channel membership not verified"}
+        
+        today = dt.datetime.now().date().isoformat()
+        if user["last_ad_date"] == today and user["gigapub_daily_ads_watched"] >= 6:
+            return {"success": False, "limit_reached": True}
+        
+        await update_daily_ads(user_id, "gigapub", 1)
+        await update_points(user_id, 20.0)
+        
+        invited_by = user.get("invited_by")
+        if invited_by:
+            logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+            await update_points(invited_by, 2.0)
+        
+        user = await get_user_data(user_id)
+        return {
+            "success": True,
+            "points": user["points"],
+            "gigapub_daily_ads_watched": user["gigapub_daily_ads_watched"]
+        }
+    except Exception as e:
+        logger.error(f"Error in watch_gigapub_ad for {user_id}: {e}")
+        return {"success": False, "message": "Error watching ad"}
 
 @app.post("/api/watch_adexium/{user_id}")
 async def watch_adexium_ad(user_id: int):
     logger.info(f"Adexium ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["adexium_daily_ads_watched"] >= 6:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "adexium", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "adexium_daily_ads_watched": user["adexium_daily_ads_watched"]
-    }
+    try:
+        user = await get_user_data(user_id)
+        if not user["channel_verified"]:
+            return {"success": False, "message": "Channel membership not verified"}
+        
+        today = dt.datetime.now().date().isoformat()
+        if user["last_ad_date"] == today and user["adexium_daily_ads_watched"] >= 6:
+            return {"success": False, "limit_reached": True}
+        
+        await update_daily_ads(user_id, "adexium", 1)
+        await update_points(user_id, 20.0)
+        
+        invited_by = user.get("invited_by")
+        if invited_by:
+            logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
+            await update_points(invited_by, 2.0)
+        
+        user = await get_user_data(user_id)
+        return {
+            "success": True,
+            "points": user["points"],
+            "adexium_daily_ads_watched": user["adexium_daily_ads_watched"]
+        }
+    except Exception as e:
+        logger.error(f"Error in watch_adexium_ad for {user_id}: {e}")
+        return {"success": False, "message": "Error watching ad"}
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
-    data = await request.json()
-    amount = float(data["amount"])
-    binance_id = data["binance_id"]
-    if amount < 2000 or not binance_id:
-        return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
-    if await withdraw_points(user_id, amount, binance_id):
-        return {"success": True}
-    return {"success": False, "message": "Insufficient balance"}
+    try:
+        data = await request.json()
+        amount = float(data["amount"])
+        binance_id = data["binance_id"]
+        if amount < 2000 or not binance_id:
+            return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
+        if await withdraw_points(user_id, amount, binance_id):
+            return {"success": True}
+        return {"success": False, "message": "Insufficient balance"}
+    except Exception as e:
+        logger.error(f"Error in withdraw for {user_id}: {e}")
+        return {"success": False, "message": "Error processing withdrawal"}
 
 @app.post("/api/verify_channel/{user_id}")
 async def verify_channel(user_id: int):
-    if await verify_channel_membership(user_id):
-        return {"success": True, "message": "Channel membership verified"}
-    return {"success": False, "message": "You must join the channel first"}
+    try:
+        if await verify_channel_membership(user_id):
+            return {"success": True, "message": "Channel membership verified"}
+        return {"success": False, "message": "You must join the channel first"}
+    except Exception as e:
+        logger.error(f"Error in verify_channel for {user_id}: {e}")
+        return {"success": False, "message": "Error verifying channel membership"}
 
 # Mini App HTML
 @app.get("/app")
@@ -732,7 +794,7 @@ async def mini_app():
     <div id="tasks" class="page active">
         <div class="header">
             <h2>Tasks</h2>
-            <p>ID: <span id="user-id"></span></p>
+            <p>ID: <span id="user-id">Loading...</span></p>
             <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
         </div>
         <div class="card">
@@ -769,7 +831,7 @@ async def mini_app():
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
-            <p id="invite-link" class="highlight break-all"></p>
+            <p id="invite-link" class="highlight break-all">Loading...</p>
             <button class="copy-btn" onclick="copyLink()">Copy Invite Link</button>
             <p>Total Friends: <span id="invited-count" class="highlight">0</span></p>
         </div>
@@ -807,6 +869,7 @@ async def mini_app():
         if (!userId) {
             tg.showAlert('User ID not found. Please restart the app.');
             console.error('User ID not found');
+            document.getElementById('user-id').textContent = 'Error: User ID not found';
             return;
         }
         document.getElementById('user-id').textContent = userId;
@@ -819,7 +882,8 @@ async def mini_app():
             localStorage.setItem(`channel_verified_${userId}`, status);
         }
 
-        async function loadData() {
+        async function loadData(attempt = 1) {
+            const maxAttempts = 2;
             try {
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
@@ -833,8 +897,11 @@ async def mini_app():
                     fetch('/api/user/' + userId, { cache: 'no-store' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
-                if (!response.ok) throw new Error('API failed: ' + response.status);
+                if (!response.ok) {
+                    throw new Error(`API failed: HTTP ${response.status}`);
+                }
                 const data = await response.json();
+                document.getElementById('user-id').textContent = userId;
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/6';
                 document.getElementById('adsgram-limit').textContent = data.adsgram_daily_ads_watched + '/6';
@@ -852,8 +919,15 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }
             } catch (error) {
-                console.error('loadData error:', error);
-                tg.showAlert('Failed to load data: ' + error.message);
+                console.error('loadData error (attempt ' + attempt + '):', error);
+                if (attempt < maxAttempts) {
+                    console.log('Retrying loadData...');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return loadData(attempt + 1);
+                }
+                tg.showAlert('Failed to load user data: ' + error.message);
+                document.getElementById('user-id').textContent = 'Error: Failed to load';
+                document.getElementById('balance').textContent = 'N/A';
             }
         }
 
@@ -865,6 +939,9 @@ async def mini_app():
                     fetch('/api/verify_channel/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
+                if (!response.ok) {
+                    throw new Error(`API failed: HTTP ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     verifyBtn.textContent = 'Verified';
@@ -874,11 +951,13 @@ async def mini_app():
                     tg.showAlert('Channel membership verified!');
                     await loadData();
                 } else {
+                    localStorage.removeItem(`channel_verified_${userId}`);
                     tg.showAlert('Please join the channel first!');
                 }
             } catch (error) {
                 console.error('verifyChannel error:', error);
-                tg.showAlert('Failed to verify channel membership: ' + error.message);
+                localStorage.removeItem(`channel_verified_${userId}`);
+                tg.showAlert('Failed to verify channel: ' + error.message);
             } finally {
                 verifyBtn.disabled = false;
             }
@@ -1054,11 +1133,15 @@ async def mini_app():
         async function copyLink() {
             try {
                 const link = document.getElementById('invite-link').textContent;
+                if (link === 'Loading...') {
+                    tg.showAlert('Invite link not loaded yet, please wait.');
+                    return;
+                }
                 await navigator.clipboard.writeText(link);
                 tg.showAlert('Link copied!');
             } catch (error) {
                 console.error('copyLink error:', error);
-                tg.showAlert('Failed to copy link');
+                tg.showAlert('Failed to copy link: ' + error.message);
             }
         }
 
@@ -1163,6 +1246,7 @@ async def telegram_webhook(request: Request):
 @app.get("/set-webhook")
 async def set_webhook():
     if not BASE_URL:
+        logger.error("BASE_URL not set")
         raise HTTPException(status_code=400, detail="BASE_URL not set")
     webhook_url = f"{BASE_URL}/telegram/webhook"
     try:
@@ -1237,32 +1321,46 @@ threading.Thread(target=start_ping_task, daemon=True).start()
 
 # Initialize
 async def initialize_app():
-    await validate_token()
-    await init_json()
-    await application.initialize()
-    if BASE_URL:
-        webhook_url = f"{BASE_URL}/telegram/webhook"
-        await application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set: {webhook_url}")
-    else:
-        logger.warning("BASE_URL not set - set manually via /set-webhook")
+    try:
+        await validate_token()
+        await init_json()
+        await application.initialize()
+        if BASE_URL:
+            webhook_url = f"{BASE_URL}/telegram/webhook"
+            await application.bot.set_webhook(webhook_url)
+            logger.info(f"Webhook set: {webhook_url}")
+        else:
+            logger.warning("BASE_URL not set - set manually via /set-webhook")
+    except Exception as e:
+        logger.error(f"Initialization error: {e}")
+        raise
 
 async def validate_token():
     if not BOT_TOKEN:
+        logger.error("BOT_TOKEN not set")
         raise ValueError("BOT_TOKEN not set")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
-            if resp.status != 200:
-                raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
-    logger.info("BOT_TOKEN validated")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
+                if resp.status != 200:
+                    logger.error(f"Invalid BOT_TOKEN: HTTP {resp.status}, {await resp.text()}")
+                    raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
+        logger.info("BOT_TOKEN validated")
+    except Exception as e:
+        logger.error(f"Token validation error: {e}")
+        raise
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
+        logger.error("Missing BOT_TOKEN")
         raise RuntimeError("Missing BOT_TOKEN")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(initialize_app())
         uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info", workers=1)
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
+        raise
     finally:
         loop.close()
