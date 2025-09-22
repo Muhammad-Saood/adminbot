@@ -1,3 +1,4 @@
+check this  "
 import os
 import json
 import aiofiles
@@ -26,8 +27,8 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-ADSGRAM_ZONE = os.getenv("ADSGRAM_ZONE", "14987")
-TELEGA_APP_ID = os.getenv("TELEGA_APP_ID", "")
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "14987")  # Replace with your actual block ID from partner.adsgram.ai
+TELEGA_CAMPAIGN_ID = os.getenv("TELEGA_CAMPAIGN_ID", "")  # Placeholder; replace if Telega provides a campaign ID
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -315,7 +316,6 @@ async def mini_app():
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
-    <script src="https://telega.io/sdk.js" data-app-id="{TELEGA_APP_ID}"></script>
     <style>
         * {
             margin: 0;
@@ -336,9 +336,9 @@ async def mini_app():
             min-height: 100vh;
             flex-direction: column;
             align-items: center;
-            justify-content: center; /* Center content vertically */
+            justify-content: center;
             padding-top: 2rem;
-            padding-bottom: 5rem; /* Space for fixed nav bar */
+            padding-bottom: 5rem;
         }
 
         .page.active {
@@ -347,13 +347,13 @@ async def mini_app():
 
         .header {
             text-align: center;
-            margin-bottom: 2rem; /* Adjusted spacing */
+            margin-bottom: 2rem;
         }
 
         .header h2 {
             font-size: 2rem;
             font-weight: 700;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
@@ -361,7 +361,7 @@ async def mini_app():
             font-size: 1.125rem;
             font-weight: 400;
             opacity: 0.9;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
         }
 
         .highlight {
@@ -390,12 +390,12 @@ async def mini_app():
         .card h3 {
             font-size: 1.25rem;
             font-weight: 600;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
         }
 
         .card p {
             font-size: 1rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             opacity: 0.9;
         }
 
@@ -449,7 +449,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -470,7 +470,7 @@ async def mini_app():
             width: 100%;
             text-decoration: none;
             display: inline-block;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -488,7 +488,7 @@ async def mini_app():
             cursor: pointer;
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -507,7 +507,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -524,7 +524,7 @@ async def mini_app():
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
             font-size: 1rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
@@ -573,12 +573,12 @@ async def mini_app():
         .verify-box h2 {
             font-size: 1.5rem;
             font-weight: 700;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
         }
 
         .verify-box p {
             font-size: 0.875rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             opacity: 0.8;
         }
 
@@ -596,9 +596,9 @@ async def mini_app():
 
         @media (max-width: 640px) {
             .page {
-                justify-content: center; /* Center content on mobile */
+                justify-content: center;
                 padding-top: 1.5rem;
-                padding-bottom: 4rem; /* Slightly reduced for balance */
+                padding-bottom: 4rem;
             }
             .header h2 {
                 font-size: 1.75rem;
@@ -669,7 +669,7 @@ async def mini_app():
             <h3>Telega Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
             <p>Daily Limit: <span id="telega-limit" class="highlight">0</span>/10</p>
-            <button class="watch-btn" id="telega-ad-btn">Watch Telega Ad</button>
+            <button class="watch-btn" id="telega-ad-btn">Coming Soon</button>
         </div>
     </div>
     <div id="invite" class="page">
@@ -825,24 +825,27 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await adsgram.showAd().then(async () => {
-                    const response = await Promise.race([
-                        fetch('/api/watch_adsgram/' + userId, { method: 'POST' }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                    ]);
-                    const data = await response.json();
-                    if (data.success) {
-                        tg.showAlert('Adsgram ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
-                        tg.showAlert('Adsgram daily limit reached!');
-                    } else if (data.message === 'Channel membership not verified') {
-                        tg.showAlert('Please verify channel membership first!');
-                        setCachedVerificationStatus(false);
-                        document.getElementById('verify-overlay').style.display = 'flex';
-                    } else {
-                        tg.showAlert('Error watching Adsgram ad');
+                const AdController = window.Adsgram.init({ blockId: '{ADSGRAM_BLOCK_ID}' });
+                await AdController.show().then(async (result) => {
+                    if (result.done) {
+                        const response = await Promise.race([
+                            fetch('/api/watch_adsgram/' + userId, { method: 'POST' }),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                        ]);
+                        const data = await response.json();
+                        if (data.success) {
+                            tg.showAlert('Adsgram ad watched! +20 $DOGS');
+                        } else if (data.limit_reached) {
+                            tg.showAlert('Adsgram daily limit reached!');
+                        } else if (data.message === 'Channel membership not verified') {
+                            tg.showAlert('Please verify channel membership first!');
+                            setCachedVerificationStatus(false);
+                            document.getElementById('verify-overlay').style.display = 'flex';
+                        } else {
+                            tg.showAlert('Error watching Adsgram ad');
+                        }
+                        await loadData();
                     }
-                    await loadData();
                 }).catch(error => {
                     tg.showAlert('Adsgram ad failed to load');
                     console.error('Adsgram error:', error);
@@ -854,36 +857,7 @@ async def mini_app():
         }
 
         async function watchTelegaAd() {
-            const watchBtn = document.getElementById('telega-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                await telega.showAd().then(async () => {
-                    const response = await Promise.race([
-                        fetch('/api/watch_telega/' + userId, { method: 'POST' }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                    ]);
-                    const data = await response.json();
-                    if (data.success) {
-                        tg.showAlert('Telega ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
-                        tg.showAlert('Telega daily limit reached!');
-                    } else if (data.message === 'Channel membership not verified') {
-                        tg.showAlert('Please verify channel membership first!');
-                        setCachedVerificationStatus(false);
-                        document.getElementById('verify-overlay').style.display = 'flex';
-                    } else {
-                        tg.showAlert('Error watching Telega ad');
-                    }
-                    await loadData();
-                }).catch(error => {
-                    tg.showAlert('Telega ad failed to load');
-                    console.error('Telega error:', error);
-                });
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Telega Ad';
-            }
+            tg.showAlert('Telega ad integration coming soon!');
         }
 
         async function copyLink() {
@@ -955,7 +929,7 @@ async def mini_app():
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{ADSGRAM_ZONE}", ADSGRAM_ZONE).replace("{TELEGA_APP_ID}", TELEGA_APP_ID).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{ADSGRAM_BLOCK_ID}", ADSGRAM_BLOCK_ID).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
