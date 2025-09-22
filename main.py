@@ -1011,7 +1011,9 @@ async def mini_app():
                     if (data.success) {
                         tg.showAlert('Adsgram ad watched! +20 $DOGS');
                     } else if (data.limit_reached) {
-                        tg.showAlert('Adsgram daily limit reached!');
+                        tg.showAlert('Adsgram daily limit reached _
+
+!');
                     } else if (data.message === 'Channel membership not verified') {
                         tg.showAlert('Please verify channel membership first!');
                         setCachedVerificationStatus(false);
