@@ -341,12 +341,33 @@ async def mini_app():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="imagetoolbar" content="no">
     <title>DOGS Earn App</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script src="https://inapp.telega.io/sdk/v1/sdk.js"></script>
-    <script src="https://ad.gigapub.tech/script?id=3185"></script>
+    <script data-project-id="{GIGAPUB_SCRIPT_ID}">
+      !function(){
+        var s=document.currentScript,p=s.getAttribute('data-project-id')||'default';
+        var d=['https://ad.gigapub.tech','https://ru-ad.gigapub.tech'],i=0,t,sc;
+        function l(){
+          sc=document.createElement('script');
+          sc.async=true;
+          sc.src=d[i]+'/script?id='+p;
+          clearTimeout(t);
+          t=setTimeout(function(){
+            sc.onload=sc.onerror=null;
+            sc.src='';
+            if(++i<d.length)l();
+          },15000);
+          sc.onload=function(){clearTimeout(t)};
+          sc.onerror=function(){clearTimeout(t);if(++i<d.length)l()};
+          document.head.appendChild(sc);
+        }
+        l();
+      }();
+    </script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
     <style>
         * {
@@ -773,11 +794,29 @@ async def mini_app():
         let adexiumAds;
 
         document.addEventListener('DOMContentLoaded', () => {
-            telegaAds = window.TelegaIn.AdsController.create_miniapp({ token: '{TELEGA_TOKEN}' });
-            adexiumAds = new window.AdexiumWidget({
-                wid: '{ADEXIUM_WID}',
-                adFormat: 'interstitial'
-            });
+            // Initialize Telega
+            if (window.TelegaIn) {
+                telegaAds = window.TelegaIn.AdsController.create_miniapp({ token: '{TELEGA_TOKEN}' });
+            } else {
+                console.error('Telega SDK not loaded');
+            }
+
+            // Initialize Adexium
+            if (window.AdexiumWidget) {
+                adexiumAds = new window.AdexiumWidget({
+                    wid: '{ADEXIUM_WID}',
+                    adFormat: 'interstitial',
+                    debug: false // Set to true for testing, false for production
+                });
+            } else {
+                console.error('AdexiumWidget SDK not loaded');
+            }
+
+            // GigaPub fallback logic
+            window.AdGigaFallback = () => Promise.reject(new Error('GigaPub fallback: no ad available'));
+            if (window.showGiga === undefined) {
+                window.showGiga = () => window.AdGigaFallback();
+            }
         });
 
         function getCachedVerificationStatus() {
@@ -806,7 +845,7 @@ async def mini_app():
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/7';
-                document.getElementById('telega-limit').textContent = data.telega_daily_ads_watched + '/7';
+                documentidel('telega-limit').textContent = data.telega_daily_ads_watched + '/7';
                 document.getElementById('gigapub-limit').textContent = data.gigapub_daily_ads_watched + '/7';
                 document.getElementById('adexium-limit').textContent = data.adexium_daily_ads_watched + '/7';
                 document.getElementById('invited-count').textContent = data.invited_friends;
@@ -857,6 +896,9 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
+                if (!window[`show_{MONETAG_ZONE}`]) {
+                    throw new Error('Monetag SDK not loaded');
+                }
                 await window[`show_{MONETAG_ZONE}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
@@ -962,18 +1004,40 @@ async def mini_app():
                 if (!adexiumAds) {
                     throw new Error('Adexium Widget not initialized');
                 }
+                let taskId;
                 await new Promise((resolve, reject) => {
-                    adexiumAds.on('adPlaybackCompleted', () => {
-                        resolve();
-                    });
-                    adexiumAds.on('adClosed', () => {
-                        reject(new Error('Ad closed without completion'));
-                    });
-                    adexiumAds.on('noAdFound', () => {
+                    const adReceivedListener = (ad) => {
+                        taskId = ad.id;
+                        adexiumAds.displayAd(ad);
+                    };
+                    const noAdFoundListener = () => {
                         reject(new Error('No Adexium ad available'));
-                    });
+                    };
+                    const adPlaybackCompletedListener = () => {
+                        resolve();
+                    };
+                    const adClosedListener = () => {
+                        reject(new Error('Ad closed without completion'));
+                    };
+                    adexiumAds.on('adReceived', adReceivedListener);
+                    adexiumAds.on('noAdFound', noAdFoundListener);
+                    adexiumAds.on('adPlaybackCompleted', adPlaybackCompletedListener);
+                    adexiumAds.on('adClosed', adClosedListener);
                     adexiumAds.requestAd('interstitial');
+                    setTimeout(() => {
+                        adexiumAds.off('adReceived', adReceivedListener);
+                        adexiumAds.off('noAdFound', noAdFoundListener);
+                        adexiumAds.off('adPlaybackCompleted', adPlaybackCompletedListener);
+                        adexiumAds.off('adClosed', adClosedListener);
+                        reject(new Error('Adexium ad request timed out'));
+                    }, 15000);
                 });
+                // Verify task completion with S2S postback
+                const checkResponse = await fetch(`https://bid.tgads.live/task/check/{ADEXIUM_WID}/${taskId}`);
+                const checkData = await checkResponse.json();
+                if (!checkData.done) {
+                    throw new Error('Adexium task not completed');
+                }
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -1075,7 +1139,7 @@ async def mini_app():
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_TOKEN}", TELEGA_TOKEN).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_TOKEN}", TELEGA_TOKEN).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{GIGAPUB_SCRIPT_ID}", GIGAPUB_SCRIPT_ID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
