@@ -787,8 +787,19 @@ async def mini_app():
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        const userId = tg.initDataUnsafe.user.id;
-        document.getElementById('user-id').textContent = userId;
+        let userId;
+        try {
+            userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+            if (!userId) {
+                throw new Error('User ID not found. Please open the app via Telegram.');
+            }
+            document.getElementById('user-id').textContent = userId;
+        } catch (error) {
+            console.error('User ID retrieval error:', error);
+            tg.showAlert(error.message);
+            document.getElementById('user-id').textContent = 'Error: User ID not found';
+            return;
+        }
 
         let telegaAds;
         let adexiumAds;
@@ -796,20 +807,32 @@ async def mini_app():
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize Telega
             if (window.TelegaIn) {
-                telegaAds = window.TelegaIn.AdsController.create_miniapp({ token: '{TELEGA_TOKEN}' });
+                try {
+                    telegaAds = window.TelegaIn.AdsController.create_miniapp({ token: '{TELEGA_TOKEN}' });
+                } catch (error) {
+                    console.error('Telega initialization error:', error);
+                    tg.showAlert('Failed to initialize Telega ads: ' + error.message);
+                }
             } else {
                 console.error('Telega SDK not loaded');
+                tg.showAlert('Telega ad system failed to load. Please try again later.');
             }
 
             // Initialize Adexium
             if (window.AdexiumWidget) {
-                adexiumAds = new window.AdexiumWidget({
-                    wid: '{ADEXIUM_WID}',
-                    adFormat: 'interstitial',
-                    debug: false // Set to true for testing, false for production
-                });
+                try {
+                    adexiumAds = new window.AdexiumWidget({
+                        wid: '{ADEXIUM_WID}',
+                        adFormat: 'interstitial',
+                        debug: false // Set to true for testing, false for production
+                    });
+                } catch (error) {
+                    console.error('Adexium initialization error:', error);
+                    tg.showAlert('Failed to initialize Adexium ads: ' + error.message);
+                }
             } else {
                 console.error('AdexiumWidget SDK not loaded');
+                tg.showAlert('Adexium ad system failed to load. Please try again later.');
             }
 
             // GigaPub fallback logic
@@ -828,6 +851,10 @@ async def mini_app():
         }
 
         async function loadData() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             try {
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
@@ -848,6 +875,7 @@ async def mini_app():
                 document.getElementById('telega-limit').textContent = data.telega_daily_ads_watched + '/7';
                 document.getElementById('gigapub-limit').textContent = data.gigapub_daily_ads_watched + '/7';
                 document.getElementById('adexium-limit').textContent = data.adexium_daily_ads_watched + '/7';
+                document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
                 if (data.channel_verified) {
@@ -864,6 +892,10 @@ async def mini_app():
         }
 
         async function verifyChannel() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
@@ -891,6 +923,10 @@ async def mini_app():
         }
 
         async function watchMonetagAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('monetag-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -926,6 +962,10 @@ async def mini_app():
         }
 
         async function watchTelegaAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('telega-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -961,6 +1001,10 @@ async def mini_app():
         }
 
         async function watchGigaPubAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('gigapub-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -996,6 +1040,10 @@ async def mini_app():
         }
 
         async function watchAdexiumAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('adexium-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -1064,6 +1112,10 @@ async def mini_app():
         }
 
         async function copyLink() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             try {
                 const link = document.getElementById('invite-link').textContent;
                 await navigator.clipboard.writeText(link);
@@ -1075,6 +1127,10 @@ async def mini_app():
         }
 
         async function withdraw() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
             if (amount < 2000 || !binanceId) {
@@ -1106,6 +1162,10 @@ async def mini_app():
         }
 
         function showPage(page) {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const overlay = document.getElementById('verify-overlay');
             if (overlay && overlay.style.display === 'flex') {
                 console.log('Navigation blocked: Verification overlay is visible');
