@@ -1065,7 +1065,7 @@ async function watchTelegaAd() {
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_TOKEN}", TELEGA_TOKEN).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
