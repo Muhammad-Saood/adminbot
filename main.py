@@ -26,7 +26,6 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-TELEGA_TOKEN = "3e3f9a77-422b-4ba1-99aa-51fcb1dc0091"
 TELEGA_AD_BLOCK_UUID = "23176662-16b2-443b-96a2-c3346dfe34ea"
 GIGAPUB_SCRIPT_ID = "3185"
 ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
@@ -341,34 +340,17 @@ async def mini_app():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="imagetoolbar" content="no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
-    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script src="https://inapp.telega.io/sdk/v1/sdk.js"></script>
-    <script data-project-id="{GIGAPUB_SCRIPT_ID}">
-      !function(){
-        var s=document.currentScript,p=s.getAttribute('data-project-id')||'default';
-        var d=['https://ad.gigapub.tech','https://ru-ad.gigapub.tech'],i=0,t,sc;
-        function l(){
-          sc=document.createElement('script');
-          sc.async=true;
-          sc.src=d[i]+'/script?id='+p;
-          clearTimeout(t);
-          t=setTimeout(function(){
-            sc.onload=sc.onerror=null;
-            sc.src='';
-            if(++i<d.length)l();
-          },15000);
-          sc.onload=function(){clearTimeout(t)};
-          sc.onerror=function(){clearTimeout(t);if(++i<d.length)l()};
-          document.head.appendChild(sc);
-        }
-        l();
-      }();
-    </script>
-    <script type="text/javascript" src="https://cdn.tgads.space/assets/js/tg-ads-co-widget.min.js"></script>
+    <script>
+  const ads = window.TelegaIn.AdsController.create_miniapp({
+    token: '3e3f9a77-422b-4ba1-99aa-51fcb1dc0091' });
+</script>
+    <script src="https://ad.gigapub.tech/script?id=3185"></script>
+    <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -787,60 +769,8 @@ async def mini_app():
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        let userId;
-        try {
-            userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
-            if (!userId) {
-                throw new Error('User ID not found. Please open the app via Telegram.');
-            }
-            document.getElementById('user-id').textContent = userId;
-        } catch (error) {
-            console.error('User ID retrieval error:', error);
-            tg.showAlert(error.message);
-            document.getElementById('user-id').textContent = 'Error: User ID not found';
-            return;
-        }
-
-        let telegaAds;
-        let adexiumAds;
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize Telega
-            if (window.TelegaIn) {
-                try {
-                    telegaAds = window.TelegaIn.AdsController.create_miniapp({ token: '{TELEGA_TOKEN}' });
-                } catch (error) {
-                    console.error('Telega initialization error:', error);
-                    tg.showAlert('Failed to initialize Telega ads: ' + error.message);
-                }
-            } else {
-                console.error('Telega SDK not loaded');
-                tg.showAlert('Telega ad system failed to load. Please try again later.');
-            }
-
-            // Initialize Adexium
-            if (window.AdexiumWidget) {
-                try {
-                    adexiumAds = new window.AdexiumWidget({
-                        wid: '{ADEXIUM_WID}',
-                        adFormat: 'interstitial',
-                        debug: false // Set to true for testing, false for production
-                    });
-                } catch (error) {
-                    console.error('Adexium initialization error:', error);
-                    tg.showAlert('Failed to initialize Adexium ads: ' + error.message);
-                }
-            } else {
-                console.error('AdexiumWidget SDK not loaded');
-                tg.showAlert('Adexium ad system failed to load. Please try again later.');
-            }
-
-            // GigaPub fallback logic
-            window.AdGigaFallback = () => Promise.reject(new Error('GigaPub fallback: no ad available'));
-            if (window.showGiga === undefined) {
-                window.showGiga = () => window.AdGigaFallback();
-            }
-        });
+        const userId = tg.initDataUnsafe.user.id;
+        document.getElementById('user-id').textContent = userId;
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -851,10 +781,6 @@ async def mini_app():
         }
 
         async function loadData() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             try {
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
@@ -892,10 +818,6 @@ async def mini_app():
         }
 
         async function verifyChannel() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
@@ -923,17 +845,10 @@ async def mini_app():
         }
 
         async function watchMonetagAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const watchBtn = document.getElementById('monetag-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!window[`show_{MONETAG_ZONE}`]) {
-                    throw new Error('Monetag SDK not loaded');
-                }
                 await window[`show_{MONETAG_ZONE}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
@@ -960,51 +875,41 @@ async def mini_app():
                 watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
-
-        async function watchTelegaAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
+    
+async function watchTelegaAd() {
             const watchBtn = document.getElementById('telega-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!telegaAds) {
-                    throw new Error('Telega AdsController not initialized');
-                }
-                await telegaAds.ad_show({ adBlockUuid: '{TELEGA_AD_BLOCK_UUID}' });
+                await window[`show_{TELEGA_AD_BLOCK_UUID}`]();
                 const response = await Promise.race([
-                    fetch('/api/watch_telega/' + userId, { method: 'POST' }),
+                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert('Telega ad watched! +20 $DOGS');
+                    tg.showAlert('Monetag ad watched! +20 $DOGS');
                 } else if (data.limit_reached) {
-                    tg.showAlert('Telega daily limit reached!');
+                    tg.showAlert('Monetag daily limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
                     tg.showAlert('Please verify channel membership first!');
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
                 } else {
-                    tg.showAlert('Error watching Telega ad');
+                    tg.showAlert('Error watching Monetag ad');
                 }
                 await loadData();
             } catch (error) {
-                console.error('Telega ad error:', error);
-                tg.showAlert('Telega ad failed to load: ' + error.message);
+                console.error('Monetag ad error:', error);
+                tg.showAlert('Monetag ad failed to load: ' + error.message);
             } finally {
                 watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Telega Ad';
+                watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
 
+        
         async function watchGigaPubAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const watchBtn = document.getElementById('gigapub-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -1040,10 +945,6 @@ async def mini_app():
         }
 
         async function watchAdexiumAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const watchBtn = document.getElementById('adexium-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
@@ -1051,40 +952,18 @@ async def mini_app():
                 if (!adexiumAds) {
                     throw new Error('Adexium Widget not initialized');
                 }
-                let taskId;
                 await new Promise((resolve, reject) => {
-                    const adReceivedListener = (ad) => {
-                        taskId = ad.id;
-                        adexiumAds.displayAd(ad);
-                    };
-                    const noAdFoundListener = () => {
-                        reject(new Error('No Adexium ad available'));
-                    };
-                    const adPlaybackCompletedListener = () => {
+                    adexiumAds.on('adPlaybackCompleted', () => {
                         resolve();
-                    };
-                    const adClosedListener = () => {
+                    });
+                    adexiumAds.on('adClosed', () => {
                         reject(new Error('Ad closed without completion'));
-                    };
-                    adexiumAds.on('adReceived', adReceivedListener);
-                    adexiumAds.on('noAdFound', noAdFoundListener);
-                    adexiumAds.on('adPlaybackCompleted', adPlaybackCompletedListener);
-                    adexiumAds.on('adClosed', adClosedListener);
+                    });
+                    adexiumAds.on('noAdFound', () => {
+                        reject(new Error('No Adexium ad available'));
+                    });
                     adexiumAds.requestAd('interstitial');
-                    setTimeout(() => {
-                        adexiumAds.off('adReceived', adReceivedListener);
-                        adexiumAds.off('noAdFound', noAdFoundListener);
-                        adexiumAds.off('adPlaybackCompleted', adPlaybackCompletedListener);
-                        adexiumAds.off('adClosed', adClosedListener);
-                        reject(new Error('Adexium ad request timed out'));
-                    }, 15000);
                 });
-                // Verify task completion with S2S postback
-                const checkResponse = await fetch(`https://bid.tgads.live/task/check/{ADEXIUM_WID}/${taskId}`);
-                const checkData = await checkResponse.json();
-                if (!checkData.done) {
-                    throw new Error('Adexium task not completed');
-                }
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -1112,10 +991,6 @@ async def mini_app():
         }
 
         async function copyLink() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             try {
                 const link = document.getElementById('invite-link').textContent;
                 await navigator.clipboard.writeText(link);
@@ -1127,10 +1002,6 @@ async def mini_app():
         }
 
         async function withdraw() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
             if (amount < 2000 || !binanceId) {
@@ -1162,10 +1033,6 @@ async def mini_app():
         }
 
         function showPage(page) {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const overlay = document.getElementById('verify-overlay');
             if (overlay && overlay.style.display === 'flex') {
                 console.log('Navigation blocked: Verification overlay is visible');
@@ -1198,7 +1065,7 @@ async def mini_app():
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_TOKEN}", TELEGA_TOKEN).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{GIGAPUB_SCRIPT_ID}", GIGAPUB_SCRIPT_ID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{TELEGA_TOKEN}", TELEGA_TOKEN).replace("{TELEGA_AD_BLOCK_UUID}", TELEGA_AD_BLOCK_UUID).replace("{ADEXIUM_WID}", ADEXIUM_WID))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
