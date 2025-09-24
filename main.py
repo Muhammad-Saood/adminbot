@@ -606,7 +606,7 @@ async def mini_app():
                 margin-bottom: 0.75rem;
             }
             .card h3 {
-                font-bottom: 0.75rem;
+                margin-bottom: 0.75rem;
             }
             .card p {
                 margin-bottom: 0.75rem;
@@ -836,7 +836,7 @@ async def mini_app():
                 watchBtn.textContent = 'Watch Adexium Ad';
             }
         }
-    
+
         async function copyLink() {
             try {
                 const link = document.getElementById('invite-link').textContent;
