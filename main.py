@@ -78,8 +78,6 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "user_id": user_id,
             "points": 0.0,
             "monetag_daily_ads_watched": 0,
-            "telega_daily_ads_watched": 0,
-            "gigapub_daily_ads_watched": 0,
             "adexium_daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
@@ -119,8 +117,6 @@ async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
             user_data[f"{platform}_daily_ads_watched"] += ads_watched
         else:
             user_data["monetag_daily_ads_watched"] = 0
-            user_data["telega_daily_ads_watched"] = 0
-            user_data["gigapub_daily_ads_watched"] = 0
             user_data["adexium_daily_ads_watched"] = 0
             user_data[f"{platform}_daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
@@ -199,8 +195,6 @@ async def get_user(user_id: int):
     return {
         "points": user["points"],
         "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
-        "telega_daily_ads_watched": user["telega_daily_ads_watched"],
-        "gigapub_daily_ads_watched": user["gigapub_daily_ads_watched"],
         "adexium_daily_ads_watched": user["adexium_daily_ads_watched"],
         "invited_friends": user["invited_friends"],
         "invited_by": None,
@@ -233,58 +227,6 @@ async def watch_monetag_ad(user_id: int):
         "success": True,
         "points": user["points"],
         "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
-    }
-
-@app.post("/api/watch_telega/{user_id}")
-async def watch_telega_ad(user_id: int):
-    logger.info(f"Telega ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["telega_daily_ads_watched"] >= 7:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "telega", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "telega_daily_ads_watched": user["telega_daily_ads_watched"]
-    }
-
-@app.post("/api/watch_gigapub/{user_id}")
-async def watch_gigapub_ad(user_id: int):
-    logger.info(f"GigaPub ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["gigapub_daily_ads_watched"] >= 7:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "gigapub", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "gigapub_daily_ads_watched": user["gigapub_daily_ads_watched"]
     }
 
 @app.post("/api/watch_adexium/{user_id}")
@@ -338,18 +280,12 @@ async def mini_app():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="imagetoolbar" content="no">
     <title>DOGS Earn App</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
-<script type="text/javascript">
-    document.addEventListener('DOMContentLoaded', () => {
-        const adexiumWidget = new AdexiumWidget({wid: '7de35f31-1b0a-4dbd-8132-d9b725c40e38', adFormat: 'interstitial'});
-        adexiumWidget.autoMode();
-    });
-</script>
     <style>
         * {
             margin: 0;
@@ -711,16 +647,6 @@ async def mini_app():
                 <button class="watch-btn" id="monetag-ad-btn">Watch Monetag Ad</button>
             </div>
             <div class="ad-provider">
-                <h4>Telega Ads</h4>
-                <p>Daily Limit: <span id="telega-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="telega-ad-btn">Watch Telega Ad</button>
-            </div>
-            <div class="ad-provider">
-                <h4>GigaPub Ads</h4>
-                <p>Daily Limit: <span id="gigapub-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="gigapub-ad-btn">Watch GigaPub Ad</button>
-            </div>
-            <div class="ad-provider">
                 <h4>Adexium Ads</h4>
                 <p>Daily Limit: <span id="adexium-limit" class="highlight">0/7</span></p>
                 <button class="watch-btn" id="adexium-ad-btn">Watch Adexium Ad</button>
@@ -768,8 +694,40 @@ async def mini_app():
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        const userId = tg.initDataUnsafe.user.id;
-        document.getElementById('user-id').textContent = userId;
+        let userId;
+        try {
+            userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+            if (!userId) {
+                throw new Error('User ID not found. Please open the app via Telegram.');
+            }
+            document.getElementById('user-id').textContent = userId;
+        } catch (error) {
+            console.error('User ID retrieval error:', error);
+            tg.showAlert(error.message);
+            document.getElementById('user-id').textContent = 'Error: User ID not found';
+            return;
+        }
+
+        let adexiumWidget;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                if (window.AdexiumWidget) {
+                    adexiumWidget = new AdexiumWidget({
+                        wid: '{ADEXIUM_WID}',
+                        adFormat: 'interstitial',
+                        debug: false // Set to true for testing
+                    });
+                    adexiumWidget.autoMode();
+                } else {
+                    console.error('AdexiumWidget SDK not loaded');
+                    tg.showAlert('Adexium ad system failed to load. Please try again later.');
+                }
+            } catch (error) {
+                console.error('Adexium initialization error:', error);
+                tg.showAlert('Failed to initialize Adexium ads: ' + error.message);
+            }
+        });
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -780,6 +738,10 @@ async def mini_app():
         }
 
         async function loadData() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             try {
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
@@ -797,8 +759,6 @@ async def mini_app():
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/7';
-                document.getElementById('telega-limit').textContent = data.telega_daily_ads_watched + '/7';
-                document.getElementById('gigapub-limit').textContent = data.gigapub_daily_ads_watched + '/7';
                 document.getElementById('adexium-limit').textContent = data.adexium_daily_ads_watched + '/7';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
@@ -817,6 +777,10 @@ async def mini_app():
         }
 
         async function verifyChannel() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
@@ -844,10 +808,17 @@ async def mini_app():
         }
 
         async function watchMonetagAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('monetag-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
+                if (!window[`show_{MONETAG_ZONE}`]) {
+                    throw new Error('Monetag SDK not loaded');
+                }
                 await window[`show_{MONETAG_ZONE}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
@@ -874,27 +845,20 @@ async def mini_app():
                 watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
-    
+
         async function watchAdexiumAd() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const watchBtn = document.getElementById('adexium-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!adexiumAds) {
+                if (!adexiumWidget) {
                     throw new Error('Adexium Widget not initialized');
                 }
-                await new Promise((resolve, reject) => {
-                    adexiumAds.on('adPlaybackCompleted', () => {
-                        resolve();
-                    });
-                    adexiumAds.on('adClosed', () => {
-                        reject(new Error('Ad closed without completion'));
-                    });
-                    adexiumAds.on('noAdFound', () => {
-                        reject(new Error('No Adexium ad available'));
-                    });
-                    adexiumAds.requestAd('interstitial');
-                });
+                // Since autoMode() handles ad display, we assume ad is shown when button is clicked
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -922,6 +886,10 @@ async def mini_app():
         }
 
         async function copyLink() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             try {
                 const link = document.getElementById('invite-link').textContent;
                 await navigator.clipboard.writeText(link);
@@ -933,6 +901,10 @@ async def mini_app():
         }
 
         async function withdraw() {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
             if (amount < 2000 || !binanceId) {
@@ -964,6 +936,10 @@ async def mini_app():
         }
 
         function showPage(page) {
+            if (!userId) {
+                tg.showAlert('User ID not found. Please open the app via Telegram.');
+                return;
+            }
             const overlay = document.getElementById('verify-overlay');
             if (overlay && overlay.style.display === 'flex') {
                 console.log('Navigation blocked: Verification overlay is visible');
@@ -988,8 +964,6 @@ async def mini_app():
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
         document.getElementById('monetag-ad-btn').addEventListener('click', watchMonetagAd);
-        document.getElementById('telega-ad-btn').addEventListener('click', watchTelegaAd);
-        document.getElementById('gigapub-ad-btn').addEventListener('click', watchGigaPubAd);
         document.getElementById('adexium-ad-btn').addEventListener('click', watchAdexiumAd);
         loadData();
     </script>
