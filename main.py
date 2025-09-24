@@ -287,40 +287,9 @@ async def mini_app():
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize Adexium widget
             const adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
             window.adexiumWidget = adexiumWidget; // Store globally for later use
             adexiumWidget.autoMode();
-
-            // Check if Monetag script is loaded
-            const checkMonetagLoaded = setInterval(() => {
-                if (typeof window['show_{MONETAG_ZONE}'] === 'function') {
-                    document.getElementById('monetag-ad-btn').disabled = false;
-                    clearInterval(checkMonetagLoaded);
-                }
-            }, 500);
-
-            // Check if Adexium widget is ready
-            const checkAdexiumLoaded = setInterval(() => {
-                if (window.adexiumWidget && typeof window.adexiumWidget.show === 'function') {
-                    document.getElementById('adexium-ad-btn').disabled = false;
-                    clearInterval(checkAdexiumLoaded);
-                }
-            }, 500);
-
-            // Timeout after 10 seconds
-            setTimeout(() => {
-                clearInterval(checkMonetagLoaded);
-                clearInterval(checkAdexiumLoaded);
-                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
-                    console.error('Monetag script not loaded');
-                    document.getElementById('monetag-ad-btn').disabled = true;
-                }
-                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
-                    console.error('Adexium widget not loaded');
-                    document.getElementById('adexium-ad-btn').disabled = true;
-                }
-            }, 10000);
         });
     </script>
     <style>
@@ -475,12 +444,7 @@ async def mini_app():
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
-        .watch-btn:disabled {
-            background: #6b7280;
-            cursor: not-allowed;
-        }
-
-        .watch-btn:hover:not(:disabled), .btn-primary:hover {
+        .watch-btn:hover, .btn-primary:hover {
             background: #059669;
             transform: scale(1.02);
         }
@@ -686,12 +650,12 @@ async def mini_app():
             <div class="ad-provider">
                 <h4>Monetag Ads</h4>
                 <p>Daily Limit: <span id="monetag-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="monetag-ad-btn" disabled>Watch Monetag Ad</button>
+                <button class="watch-btn" id="monetag-ad-btn">Watch Monetag Ad</button>
             </div>
             <div class="ad-provider">
                 <h4>Adexium Ads</h4>
                 <p>Daily Limit: <span id="adexium-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="adexium-ad-btn" disabled>Watch Adexium Ad</button>
+                <button class="watch-btn" id="adexium-ad-btn">Watch Adexium Ad</button>
             </div>
         </div>
     </div>
@@ -814,10 +778,7 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
-                    throw new Error('Monetag ad function not available');
-                }
-                await window['show_{MONETAG_ZONE}']();
+                await window[`show_{MONETAG_ZONE}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -839,7 +800,7 @@ async def mini_app():
                 console.error('Monetag ad error:', error);
                 tg.showAlert('Monetag ad failed to load: ' + error.message);
             } finally {
-                watchBtn.disabled = typeof window['show_{MONETAG_ZONE}'] !== 'function';
+                watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
@@ -849,9 +810,6 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
-                    throw new Error('Adexium ad function not available');
-                }
                 await window.adexiumWidget.show();
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
@@ -874,7 +832,7 @@ async def mini_app():
                 console.error('Adexium ad error:', error);
                 tg.showAlert('Adexium ad failed to load: ' + error.message);
             } finally {
-                watchBtn.disabled = !window.adexiumWidget || typeof window.adexiumWidget.show !== 'function';
+                watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Adexium Ad';
             }
         }
