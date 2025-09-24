@@ -26,7 +26,6 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-GIGAPUB_SCRIPT_ID = "3185"
 ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
 USERS_FILE = "/tmp/users.json"
 
@@ -343,13 +342,14 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script src="https://inapp.telega.io/sdk/v1/sdk.js"></script>
-    <script>
-  const ads = window.TelegaIn.AdsController.create_miniapp({
-    token: '3e3f9a77-422b-4ba1-99aa-51fcb1dc0091' });
-</script>
-    <script src="https://ad.gigapub.tech/script?id=GIGAPUB_SCRIPT_ID"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+<script type="text/javascript">
+    document.addEventListener('DOMContentLoaded', () => {
+        const adexiumWidget = new AdexiumWidget({wid: '7de35f31-1b0a-4dbd-8132-d9b725c40e38', adFormat: 'interstitial'});
+        adexiumWidget.autoMode();
+    });
+</script>
     <style>
         * {
             margin: 0;
@@ -875,72 +875,6 @@ async def mini_app():
             }
         }
     
-async function watchTelegaAd() {
-            const watchBtn = document.getElementById('telega-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                ads.ad_show({
-  adBlockUuid: "23176662-16b2-443b-96a2-c3346dfe34ea"
-});
-                const response = await Promise.race([
-                    fetch('/api/watch_telega/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Telega ad watched! +20 $DOGS');
-                } else if (data.limit_reached) {
-                    tg.showAlert('Telega daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Telega ad');
-                }
-                await loadData();
-            } catch (error) {
-                console.error('Telega ad error:', error);
-                tg.showAlert('Telega ad failed to load: ' + error.message);
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Telega Ad';
-            }
-        }
-        
-        async function watchGigaPubAd() {
-            const watchBtn = document.getElementById('gigapub-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                await window.showGiga();
-                const response = await Promise.race([
-                    fetch('/api/watch_gigapub/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('GigaPub ad watched! +20 $DOGS');
-                } else if (data.limit_reached) {
-                    tg.showAlert('GigaPub daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching GigaPub ad');
-                }
-                await loadData();
-            } catch (error) {
-                console.error('GigaPub ad error:', error);
-                tg.showAlert('GigaPub ad failed to load: ' + error.message);
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch GigaPub Ad';
-            }
-        }
-
         async function watchAdexiumAd() {
             const watchBtn = document.getElementById('adexium-ad-btn');
             watchBtn.disabled = true;
