@@ -282,12 +282,13 @@ async def mini_app():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
-    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
-    <script src="//monetag.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', () => {
             const adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
+            window.adexiumWidget = adexiumWidget; // Store globally for later use
             adexiumWidget.autoMode();
         });
     </script>
@@ -809,6 +810,7 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
+                await window.adexiumWidget.show();
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
