@@ -26,7 +26,6 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-TELEGA_AD_BLOCK_UUID = "23176662-16b2-443b-96a2-c3346dfe34ea"
 GIGAPUB_SCRIPT_ID = "3185"
 ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
 USERS_FILE = "/tmp/users.json"
@@ -882,7 +881,7 @@ async function watchTelegaAd() {
             watchBtn.textContent = 'Watching...';
             try {
                 ads.ad_show({
-  adBlockUuid: "TELEGA_AD_BLOCK_UUID"
+  adBlockUuid: "23176662-16b2-443b-96a2-c3346dfe34ea"
 });
                 const response = await Promise.race([
                     fetch('/api/watch_telega/' + userId, { method: 'POST' }),
