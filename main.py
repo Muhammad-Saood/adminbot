@@ -881,7 +881,7 @@ async function watchTelegaAd() {
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await window[`show_{TELEGA_AD_BLOCK_UUID}`]();
+                await telegaAds.ad_show({ adBlockUuid: '{TELEGA_AD_BLOCK_UUID}' });
                 const response = await Promise.race([
                     fetch('/api/watch_telega/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
