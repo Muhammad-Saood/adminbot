@@ -26,8 +26,8 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
 USERS_FILE = "/tmp/users.json"
+ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -280,12 +280,17 @@ async def mini_app():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="imagetoolbar" content="no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', () => {
+            const adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
+            adexiumWidget.autoMode();
+        });
+    </script>
     <style>
         * {
             margin: 0;
@@ -601,7 +606,7 @@ async def mini_app():
                 margin-bottom: 0.75rem;
             }
             .card h3 {
-                margin-bottom: 0.75rem;
+                font-bottom: 0.75rem;
             }
             .card p {
                 margin-bottom: 0.75rem;
@@ -694,40 +699,8 @@ async def mini_app():
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        let userId;
-        try {
-            userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
-            if (!userId) {
-                throw new Error('User ID not found. Please open the app via Telegram.');
-            }
-            document.getElementById('user-id').textContent = userId;
-        } catch (error) {
-            console.error('User ID retrieval error:', error);
-            tg.showAlert(error.message);
-            document.getElementById('user-id').textContent = 'Error: User ID not found';
-            return;
-        }
-
-        let adexiumWidget;
-
-        document.addEventListener('DOMContentLoaded', () => {
-            try {
-                if (window.AdexiumWidget) {
-                    adexiumWidget = new AdexiumWidget({
-                        wid: '{ADEXIUM_WID}',
-                        adFormat: 'interstitial',
-                        debug: false // Set to true for testing
-                    });
-                    adexiumWidget.autoMode();
-                } else {
-                    console.error('AdexiumWidget SDK not loaded');
-                    tg.showAlert('Adexium ad system failed to load. Please try again later.');
-                }
-            } catch (error) {
-                console.error('Adexium initialization error:', error);
-                tg.showAlert('Failed to initialize Adexium ads: ' + error.message);
-            }
-        });
+        const userId = tg.initDataUnsafe.user.id;
+        document.getElementById('user-id').textContent = userId;
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -738,10 +711,6 @@ async def mini_app():
         }
 
         async function loadData() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             try {
                 const isVerified = getCachedVerificationStatus();
                 const overlay = document.getElementById('verify-overlay');
@@ -777,10 +746,6 @@ async def mini_app():
         }
 
         async function verifyChannel() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
@@ -808,17 +773,10 @@ async def mini_app():
         }
 
         async function watchMonetagAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const watchBtn = document.getElementById('monetag-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!window[`show_{MONETAG_ZONE}`]) {
-                    throw new Error('Monetag SDK not loaded');
-                }
                 await window[`show_{MONETAG_ZONE}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
@@ -847,18 +805,12 @@ async def mini_app():
         }
 
         async function watchAdexiumAd() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const watchBtn = document.getElementById('adexium-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!adexiumWidget) {
-                    throw new Error('Adexium Widget not initialized');
-                }
-                // Since autoMode() handles ad display, we assume ad is shown when button is clicked
+                const adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
+                await adexiumWidget.showAd();
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -884,12 +836,8 @@ async def mini_app():
                 watchBtn.textContent = 'Watch Adexium Ad';
             }
         }
-
+    
         async function copyLink() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             try {
                 const link = document.getElementById('invite-link').textContent;
                 await navigator.clipboard.writeText(link);
@@ -901,10 +849,6 @@ async def mini_app():
         }
 
         async function withdraw() {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
             if (amount < 2000 || !binanceId) {
@@ -936,10 +880,6 @@ async def mini_app():
         }
 
         function showPage(page) {
-            if (!userId) {
-                tg.showAlert('User ID not found. Please open the app via Telegram.');
-                return;
-            }
             const overlay = document.getElementById('verify-overlay');
             if (overlay && overlay.style.display === 'flex') {
                 console.log('Navigation blocked: Verification overlay is visible');
@@ -971,6 +911,7 @@ async def mini_app():
 </html>
 """
     return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{ADEXIUM_WID}", ADEXIUM_WID))
+
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
