@@ -349,7 +349,7 @@ async def mini_app():
   const ads = window.TelegaIn.AdsController.create_miniapp({
     token: '3e3f9a77-422b-4ba1-99aa-51fcb1dc0091' });
 </script>
-    <script src="https://ad.gigapub.tech/script?id=3185"></script>
+    <script src="https://ad.gigapub.tech/script?id=GIGAPUB_SCRIPT_ID"></script>
     <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
     <style>
         * {
@@ -883,40 +883,36 @@ async function watchTelegaAd() {
             try {
                 await window[`show_{TELEGA_AD_BLOCK_UUID}`]();
                 const response = await Promise.race([
-                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                    fetch('/api/watch_telega/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert('Monetag ad watched! +20 $DOGS');
+                    tg.showAlert('Telega ad watched! +20 $DOGS');
                 } else if (data.limit_reached) {
-                    tg.showAlert('Monetag daily limit reached!');
+                    tg.showAlert('Telega daily limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
                     tg.showAlert('Please verify channel membership first!');
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
                 } else {
-                    tg.showAlert('Error watching Monetag ad');
+                    tg.showAlert('Error watching Telega ad');
                 }
                 await loadData();
             } catch (error) {
-                console.error('Monetag ad error:', error);
-                tg.showAlert('Monetag ad failed to load: ' + error.message);
+                console.error('Telega ad error:', error);
+                tg.showAlert('Telega ad failed to load: ' + error.message);
             } finally {
                 watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Monetag Ad';
+                watchBtn.textContent = 'Watch Telega Ad';
             }
         }
-
         
         async function watchGigaPubAd() {
             const watchBtn = document.getElementById('gigapub-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (!window.showGiga) {
-                    throw new Error('GigaPub showGiga function not available');
-                }
                 await window.showGiga();
                 const response = await Promise.race([
                     fetch('/api/watch_gigapub/' + userId, { method: 'POST' }),
