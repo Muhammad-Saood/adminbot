@@ -25,7 +25,7 @@ BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
-MONETAG_ZONE = "9859391"
+MONETAG_ZONES = ["9859391", "9930174", "9930913", "9930950"]
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -76,7 +76,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
-            "daily_ads_watched": 0,
+            "daily_ads_watched": {zone: 0 for zone in MONETAG_ZONES},
             "last_ad_date": None,
             "invited_friends": 0,
             "binance_id": None,
@@ -105,19 +105,21 @@ async def update_points(user_id: int, points: float):
     else:
         logger.error(f"Cannot update points: user {user_id} not found")
 
-async def update_daily_ads(user_id: int, ads_watched: int):
+async def update_daily_ads(user_id: int, zone: str, ads_watched: int):
     today = dt.datetime.now().date().isoformat()
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
         user_data = users[user_id_str]
         if user_data["last_ad_date"] == today:
-            user_data["daily_ads_watched"] += ads_watched
+            user_data["daily_ads_watched"][zone] += ads_watched
         else:
-            user_data["daily_ads_watched"] = ads_watched
+            user_data["daily_ads_watched"] = {zone: 0 for zone in MONETAG_ZONES}
+            user_data["daily_ads_watched"][zone] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
-        logger.info(f"Updated ads for {user_id}: {user_data['daily_ads_watched']}/30")
+        total_ads = sum(user_data["daily_ads_watched"].values())
+        logger.info(f"Updated ads for {user_id} in zone {zone}: {user_data['daily_ads_watched'][zone]}/7, total: {total_ads}/28")
     else:
         logger.error(f"Cannot update ads: user {user_id} not found")
 
@@ -137,8 +139,7 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
     if user_id_str in users and users[user_id_str]["points"] >= amount:
         users[user_id_str]["points"] -= amount
         users[user_id_str]["binance_id"] = binance_id
-        await write_json(users)
-        await application.bot.send_message(
+forwarded_message = await application.bot.send_message(
             chat_id=ADMIN_CHANNEL_ID,
             text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
         )
@@ -188,11 +189,13 @@ async def debug_users():
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = await get_user_data(user_id)
+    total_ads = sum(user["daily_ads_watched"].values())
     return {
         "points": user["points"],
-        "daily_ads_watched": user["daily_ads_watched"],
+        "daily_ads_watched": total_ads,
+        "daily_ads_per_zone": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "invited_by": None,
+        "invited_by": user["invited_by"],
         "channel_verified": user["channel_verified"]
     }
 
@@ -203,15 +206,27 @@ async def watch_ad(user_id: int):
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
-    
+
     today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
-        logger.info(f"Ad limit reached for {user_id}")
+    total_ads = sum(user["daily_ads_watched"].values())
+    if user["last_ad_date"] == today and total_ads >= 28:
+        logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, 1)
+
+    # Find the next available zone
+    current_zone = None
+    for zone in MONETAG_ZONES:
+        if user["last_ad_date"] != today or user["daily_ads_watched"].get(zone, 0) < 7:
+            current_zone = zone
+            break
+
+    if not current_zone:
+        logger.info(f"No available zones for {user_id}")
+        return {"success": False, "limit_reached": True}
+
+    await update_daily_ads(user_id, current_zone, 1)
     await update_points(user_id, 20.0)
-    
+
     invited_by = user.get("invited_by")
     logger.info(f"Referrer check for {user_id}: invited_by = {invited_by}")
     if invited_by:
@@ -219,12 +234,14 @@ async def watch_ad(user_id: int):
         await update_points(invited_by, 2.0)
     else:
         logger.info(f"No referrer for {user_id}")
-    
+
     user = await get_user_data(user_id)
+    total_ads = sum(user["daily_ads_watched"].values())
     return {
         "success": True,
         "points": user["points"],
-        "daily_ads_watched": user["daily_ads_watched"]
+        "daily_ads_watched": total_ads,
+        "current_zone": current_zone
     }
 
 @app.post("/api/withdraw/{user_id}")
@@ -255,7 +272,10 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_MONETAG_ZONE"></script>
+"""
+    for zone in MONETAG_ZONES:
+        html_content += f'    <script src="//libtl.com/sdk.js" data-zone="{zone}" data-sdk="show_{zone}"></script>\n'
+    html_content += """
     <style>
         * {
             margin: 0;
@@ -276,9 +296,9 @@ async def mini_app():
             min-height: 100vh;
             flex-direction: column;
             align-items: center;
-            justify-content: center; /* Center content vertically */
+            justify-content: center;
             padding-top: 2rem;
-            padding-bottom: 5rem; /* Space for fixed nav bar */
+            padding-bottom: 5rem;
         }
 
         .page.active {
@@ -287,13 +307,13 @@ async def mini_app():
 
         .header {
             text-align: center;
-            margin-bottom: 2rem; /* Adjusted spacing */
+            margin-bottom: 2rem;
         }
 
         .header h2 {
             font-size: 2rem;
             font-weight: 700;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
@@ -301,7 +321,7 @@ async def mini_app():
             font-size: 1.125rem;
             font-weight: 400;
             opacity: 0.9;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
         }
 
         .highlight {
@@ -330,12 +350,12 @@ async def mini_app():
         .card h3 {
             font-size: 1.25rem;
             font-weight: 600;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
         }
 
         .card p {
             font-size: 1rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             opacity: 0.9;
         }
 
@@ -389,7 +409,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -410,7 +430,7 @@ async def mini_app():
             width: 100%;
             text-decoration: none;
             display: inline-block;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -428,7 +448,7 @@ async def mini_app():
             cursor: pointer;
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -447,7 +467,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -464,7 +484,7 @@ async def mini_app():
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
             font-size: 1rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
@@ -513,12 +533,12 @@ async def mini_app():
         .verify-box h2 {
             font-size: 1.5rem;
             font-weight: 700;
-            margin-bottom: 0.75rem; /* Adjusted spacing */
+            margin-bottom: 0.75rem;
         }
 
         .verify-box p {
             font-size: 0.875rem;
-            margin-bottom: 1rem; /* Normal spacing */
+            margin-bottom: 1rem;
             opacity: 0.8;
         }
 
@@ -536,9 +556,9 @@ async def mini_app():
 
         @media (max-width: 640px) {
             .page {
-                justify-content: center; /* Center content on mobile */
+                justify-content: center;
                 padding-top: 1.5rem;
-                padding-bottom: 4rem; /* Slightly reduced for balance */
+                padding-bottom: 4rem;
             }
             .header h2 {
                 font-size: 1.75rem;
@@ -643,6 +663,7 @@ async def mini_app():
         tg.ready();
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
+        const MONETAG_ZONES = ["9859391", "9930174", "9930913", "9930950"];
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -669,7 +690,7 @@ async def mini_app():
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
+                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/28';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -720,28 +741,33 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await show_MONETAG_ZONE().then(async () => {
-                    const response = await Promise.race([
-                        fetch('/api/watch_ad/' + userId, { method: 'POST' }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                    ]);
-                    const data = await response.json();
-                    if (data.success) {
+                const response = await Promise.race([
+                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                ]);
+                const data = await response.json();
+                if (data.success) {
+                    const zone = data.current_zone;
+                    await window['show_' + zone]().then(() => {
                         tg.showAlert('Ad watched! +20 $DOGS');
-                    } else if (data.limit_reached) {
-                        tg.showAlert('Daily limit reached!');
-                    } else if (data.message === 'Channel membership not verified') {
-                        tg.showAlert('Please verify channel membership first!');
-                        setCachedVerificationStatus(false);
-                        document.getElementById('verify-overlay').style.display = 'flex';
-                    } else {
-                        tg.showAlert('Error watching ad');
-                    }
-                    await loadData();
-                }).catch(error => {
-                    tg.showAlert('Ad failed to load');
-                    console.error('Monetag error:', error);
-                });
+                        loadData();
+                    }).catch(error => {
+                        tg.showAlert('Ad failed to load');
+                        console.error('Monetag error:', error);
+                    });
+                } else if (data.limit_reached) {
+                    tg.showAlert('Daily limit reached!');
+                } else if (data.message === 'Channel membership not verified') {
+                    tg.showAlert('Please verify channel membership first!');
+                    setCachedVerificationStatus(false);
+                    document.getElementById('verify-overlay').style.display = 'flex';
+                } else {
+                    tg.showAlert('Error watching ad');
+                }
+                await loadData();
+            } catch (error) {
+                console.error('watchAd error:', error);
+                tg.showAlert('Failed to process ad');
             } finally {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
@@ -815,7 +841,7 @@ async def mini_app():
 </body>
 </html>
     """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("show_MONETAG_ZONE", f"show_{MONETAG_ZONE}").replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
+    return HTMLResponse(html_content.replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
@@ -863,7 +889,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-            # ----------------- SELF-PINGING TASK -----------------
+# ----------------- SELF-PINGING TASK -----------------
 PING_INTERVAL = 240  # 4 minutes in seconds
 
 def start_ping_task():
