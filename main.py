@@ -200,9 +200,13 @@ async def get_user(user_id: int):
         "channel_verified": user["channel_verified"]
     }
 
-@app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int):
-    logger.info(f"Ad watch request for {user_id}")
+@app.post("/api/watch_ad/{user_id}/{zone}")
+async def watch_ad(user_id: int, zone: str):
+    logger.info(f"Ad watch request for {user_id} in zone {zone}")
+    if zone not in MONETAG_ZONES:
+        logger.error(f"Invalid zone {zone} for user {user_id}")
+        return {"success": False, "message": "Invalid ad zone"}
+    
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
@@ -214,18 +218,31 @@ async def watch_ad(user_id: int):
         logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
-    # Find the next available zone
-    current_zone = None
-    for zone in MONETAG_ZONES:
-        if user["last_ad_date"] != today or user["daily_ads_watched"].get(zone, 0) < 7:
-            current_zone = zone
-            break
-
-    if not current_zone:
-        logger.info(f"No available zones for {user_id}")
+    if user["last_ad_date"] == today and user["daily_ads_watched"].get(zone, 0) >= 7:
+        logger.info(f"Zone {zone} limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
-    await update_daily_ads(user_id, current_zone, 1)
+    return {"success": True, "zone": zone}
+
+@app.post("/api/confirm_ad/{user_id}/{zone}")
+async def confirm_ad(user_id: int, zone: str):
+    logger.info(f"Ad confirmation request for {user_id} in zone {zone}")
+    if zone not in MONETAG_ZONES:
+        logger.error(f"Invalid zone {zone} for user {user_id}")
+        return {"success": False, "message": "Invalid ad zone"}
+
+    user = await get_user_data(user_id)
+    today = dt.datetime.now().date().isoformat()
+    total_ads = sum(user["daily_ads_watched"].values())
+    if user["last_ad_date"] == today and total_ads >= 28:
+        logger.info(f"Total ad limit reached for {user_id}")
+        return {"success": False, "limit_reached": True}
+
+    if user["last_ad_date"] == today and user["daily_ads_watched"].get(zone, 0) >= 7:
+        logger.info(f"Zone {zone} limit reached for {user_id}")
+        return {"success": False, "limit_reached": True}
+
+    await update_daily_ads(user_id, zone, 1)
     await update_points(user_id, 20.0)
 
     invited_by = user.get("invited_by")
@@ -242,7 +259,7 @@ async def watch_ad(user_id: int):
         "success": True,
         "points": user["points"],
         "daily_ads_watched": total_ads,
-        "current_zone": current_zone
+        "daily_ads_per_zone": user["daily_ads_watched"]
     }
 
 @app.post("/api/withdraw/{user_id}")
@@ -283,7 +300,6 @@ async def mini_app():
             padding: 0;
             box-sizing: border-box;
         }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             background: linear-gradient(135deg, #4b6cb7, #182848);
@@ -291,7 +307,6 @@ async def mini_app():
             color: #ffffff;
             padding: 20px;
         }
-
         .page {
             display: none;
             min-height: 100vh;
@@ -301,35 +316,29 @@ async def mini_app():
             padding-top: 2rem;
             padding-bottom: 5rem;
         }
-
         .page.active {
             display: flex;
         }
-
         .header {
             text-align: center;
             margin-bottom: 2rem;
         }
-
         .header h2 {
             font-size: 2rem;
             font-weight: 700;
             margin-bottom: 0.75rem;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
-
         .header p {
             font-size: 1.125rem;
             font-weight: 400;
             opacity: 0.9;
             margin-bottom: 0.75rem;
         }
-
         .highlight {
             color: #ffd700;
             font-weight: 600;
         }
-
         .card {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
@@ -343,23 +352,19 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: transform 0.3s ease;
         }
-
         .card:hover {
             transform: translateY(-5px);
         }
-
         .card h3 {
             font-size: 1.25rem;
             font-weight: 600;
             margin-bottom: 1rem;
         }
-
         .card p {
             font-size: 1rem;
             margin-bottom: 1rem;
             opacity: 0.9;
         }
-
         .nav {
             position: fixed;
             bottom: 0;
@@ -370,7 +375,6 @@ async def mini_app():
             border-top: 1px solid rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
         }
-
         .nav-btn {
             flex: 1;
             padding: 1rem;
@@ -383,23 +387,19 @@ async def mini_app():
             font-weight: 500;
             transition: background 0.3s ease, transform 0.2s ease;
         }
-
         .nav-btn:hover {
             background: rgba(255, 255, 255, 0.15);
         }
-
         .nav-btn.active {
             background: rgba(255, 255, 255, 0.25);
             border-radius: 0.5rem 0.5rem 0 0;
         }
-
         .nav-btn svg {
             width: 24px;
             height: 24px;
             margin: 0 auto 0.25rem;
             stroke: #ffffff;
         }
-
         .watch-btn, .btn-primary {
             background: #10b981;
             color: #ffffff;
@@ -413,12 +413,15 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
-
         .watch-btn:hover, .btn-primary:hover {
             background: #059669;
             transform: scale(1.02);
         }
-
+        .watch-btn:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
         .join-btn {
             background: #0284c7;
             color: #ffffff;
@@ -434,12 +437,10 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
-
         .join-btn:hover {
             background: #026ea5;
             transform: scale(1.02);
         }
-
         .copy-btn {
             background: #6b7280;
             color: #ffffff;
@@ -452,12 +453,10 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
-
         .copy-btn:hover {
             background: #5b616e;
             transform: scale(1.02);
         }
-
         .withdraw-btn {
             background: #ef4444;
             color: #ffffff;
@@ -471,12 +470,10 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: background 0.2s ease, transform 0.2s ease;
         }
-
         .withdraw-btn:hover {
             background: #dc2626;
             transform: scale(1.02);
         }
-
         .input {
             width: 100%;
             padding: 0.75rem;
@@ -488,17 +485,14 @@ async def mini_app():
             margin-bottom: 1rem;
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
-
         .input::placeholder {
             color: rgba(255, 255, 255, 0.5);
         }
-
         .input:focus {
             outline: none;
             border: 1px solid #60a5fa;
             box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
         }
-
         .verify-overlay {
             position: fixed;
             top: 0;
@@ -512,7 +506,6 @@ async def mini_app():
             z-index: 1000;
             transition: opacity 0.3s ease;
         }
-
         .verify-box {
             background: #ffffff;
             padding: 1rem;
@@ -526,23 +519,19 @@ async def mini_app():
             transition: transform 0.3s ease;
             color: #1f2937;
         }
-
         .verify-box:hover {
             transform: scale(1.05);
         }
-
         .verify-box h2 {
             font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 0.75rem;
         }
-
         .verify-box p {
             font-size: 0.875rem;
             margin-bottom: 1rem;
             opacity: 0.8;
         }
-
         .verified-btn {
             background: #d1d5db;
             color: #6b7280;
@@ -550,11 +539,9 @@ async def mini_app():
             opacity: 0.7;
             pointer-events: none;
         }
-
         .break-all {
             word-break: break-all;
         }
-
         @media (max-width: 640px) {
             .page {
                 justify-content: center;
@@ -617,8 +604,11 @@ async def mini_app():
         <div class="card">
             <h3>Earn with Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
-            <p>Daily Limit: <span id="daily-limit" class="highlight">0</span></p>
-            <button class="watch-btn" id="watch-ad-btn">Watch Ad</button>
+            <p>Total Daily Limit: <span id="daily-limit" class="highlight">0/28</span></p>
+            <p>Zone 1 (<span id="zone-9859391-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9859391" onclick="watchAd('9859391')">Watch Ad (Zone 1)</button></p>
+            <p>Zone 2 (<span id="zone-9930174-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930174" onclick="watchAd('9930174')">Watch Ad (Zone 2)</button></p>
+            <p>Zone 3 (<span id="zone-9930913-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930913" onclick="watchAd('9930913')">Watch Ad (Zone 3)</button></p>
+            <p>Zone 4 (<span id="zone-9930950-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930950" onclick="watchAd('9930950')">Watch Ad (Zone 4)</button></p>
         </div>
     </div>
     <div id="invite" class="page">
@@ -695,6 +685,15 @@ async def mini_app():
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
+                // Update zone-specific ad counts and button states
+                MONETAG_ZONES.forEach(zone => {
+                    const countElement = document.getElementById(`zone-${zone}-count`);
+                    const button = document.getElementById(`watch-ad-btn-${zone}`);
+                    const adCount = data.daily_ads_per_zone[zone] || 0;
+                    countElement.textContent = `${adCount}/7`;
+                    button.disabled = adCount >= 7;
+                });
+
                 if (data.channel_verified) {
                     setCachedVerificationStatus(true);
                     overlay.style.display = 'none';
@@ -737,45 +736,66 @@ async def mini_app():
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
 
-        async function watchAd() {
-            const watchBtn = document.getElementById('watch-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
+        async function watchAd(zone) {
+            const button = document.getElementById(`watch-ad-btn-${zone}`);
+            button.disabled = true;
+            button.textContent = 'Loading...';
             try {
+                // Check if Monetag SDK is loaded for the zone
+                if (typeof window['show_' + zone] !== 'function') {
+                    tg.showAlert('Ad system not loaded. Please try again later.');
+                    console.error(`Monetag SDK not available for zone ${zone}`);
+                    return;
+                }
+
+                // Check if ad can be watched
                 const response = await Promise.race([
-                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                    fetch(`/api/watch_ad/${userId}/${zone}`, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
-                if (data.success) {
-                    const zone = data.current_zone;
-                    await window['show_' + zone]().then(() => {
-                        tg.showAlert('Ad watched! +20 $DOGS');
-                        loadData();
-                    }).catch(error => {
-                        tg.showAlert('Ad failed to load');
-                        console.error('Monetag error:', error);
-                    });
-                } else if (data.limit_reached) {
-                    tg.showAlert('Daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching ad');
+
+                if (!data.success) {
+                    if (data.limit_reached) {
+                        tg.showAlert('Ad limit reached for this zone or total daily limit!');
+                    } else if (data.message === 'Channel membership not verified') {
+                        tg.showAlert('Please verify channel membership first!');
+                        setCachedVerificationStatus(false);
+                        document.getElementById('verify-overlay').style.display = 'flex';
+                    } else {
+                        tg.showAlert('Error loading ad');
+                    }
+                    return;
                 }
-                await loadData();
+
+                // Show the ad
+                await window['show_' + zone]().then(async () => {
+                    // Confirm ad watch
+                    const confirmResponse = await Promise.race([
+                        fetch(`/api/confirm_ad/${userId}/${zone}`, { method: 'POST' }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    ]);
+                    const confirmData = await confirmResponse.json();
+                    if (confirmData.success) {
+                        tg.showAlert('Ad watched! +20 $DOGS');
+                        await loadData();
+                    } else if (confirmData.limit_reached) {
+                        tg.showAlert('Ad limit reached for this zone or total daily limit!');
+                    } else {
+                        tg.showAlert('Error confirming ad');
+                    }
+                }).catch(error => {
+                    tg.showAlert('Ad failed to load');
+                    console.error(`Monetag error for zone ${zone}:`, error);
+                });
             } catch (error) {
-                console.error('watchAd error:', error);
+                console.error(`watchAd error for zone ${zone}:`, error);
                 tg.showAlert('Failed to process ad');
             } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Ad';
+                button.textContent = `Watch Ad (Zone ${MONETAG_ZONES.indexOf(zone) + 1})`;
+                await loadData(); // Refresh button states
             }
         }
-
-        document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
         async function copyLink() {
             try {
