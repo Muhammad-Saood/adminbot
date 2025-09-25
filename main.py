@@ -19,14 +19,13 @@ load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = "clicktoearn5_bot"
+BOT_USERNAME = "jdsrhukds_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-ADEXIUM_WID = "7de35f31-1b0a-4dbd-8132-d9b725c40e38"
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -77,8 +76,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
-            "monetag_daily_ads_watched": 0,
-            "adexium_daily_ads_watched": 0,
+            "daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
             "binance_id": None,
@@ -107,23 +105,21 @@ async def update_points(user_id: int, points: float):
     else:
         logger.error(f"Cannot update points: user {user_id} not found")
 
-async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
+async def update_daily_ads(user_id: int, ads_watched: int):
     today = dt.datetime.now().date().isoformat()
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
         user_data = users[user_id_str]
         if user_data["last_ad_date"] == today:
-            user_data[f"{platform}_daily_ads_watched"] += ads_watched
+            user_data["daily_ads_watched"] += ads_watched
         else:
-            user_data["monetag_daily_ads_watched"] = 0
-            user_data["adexium_daily_ads_watched"] = 0
-            user_data[f"{platform}_daily_ads_watched"] = ads_watched
+            user_data["daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
-        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/7")
+        logger.info(f"Updated ads for {user_id}: {user_data['daily_ads_watched']}/30")
     else:
-        logger.error(f"Cannot update {platform} ads: user {user_id} not found")
+        logger.error(f"Cannot update ads: user {user_id} not found")
 
 async def add_invited_friend(user_id: int):
     users = await read_json()
@@ -190,79 +186,49 @@ async def debug_users():
 
 # API endpoints
 @app.get("/api/user/{user_id}")
-async def get_user(user_id: int, request: Request):
-    client_ip = request.client.host
-    logger.info(f"User {user_id} accessed /api/user from IP {client_ip}")
+async def get_user(user_id: int):
     user = await get_user_data(user_id)
     return {
         "points": user["points"],
-        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
-        "adexium_daily_ads_watched": user["adexium_daily_ads_watched"],
+        "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
         "invited_by": None,
         "channel_verified": user["channel_verified"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
-async def watch_monetag_ad(user_id: int, request: Request):
-    client_ip = request.client.host
-    logger.info(f"Monetag ad watch request for {user_id} from IP {client_ip}")
+async def watch_ad(user_id: int):
+    logger.info(f"Ad watch request for {user_id}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
     
     today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_daily_ads_watched"] >= 7:
-        logger.info(f"Monetag ad limit reached for {user_id}")
+    if user["last_ad_date"] == today and user["daily_ads_watched"] >= 30:
+        logger.info(f"Ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
     
-    await update_daily_ads(user_id, "monetag", 1)
+    await update_daily_ads(user_id, 1)
     await update_points(user_id, 20.0)
     
     invited_by = user.get("invited_by")
+    logger.info(f"Referrer check for {user_id}: invited_by = {invited_by}")
     if invited_by:
         logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
+    else:
+        logger.info(f"No referrer for {user_id}")
     
     user = await get_user_data(user_id)
     return {
         "success": True,
         "points": user["points"],
-        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
-    }
-
-@app.post("/api/watch_adexium/{user_id}")
-async def watch_adexium_ad(user_id: int, request: Request):
-    client_ip = request.client.host
-    logger.info(f"Adexium ad watch request for {user_id} from IP {client_ip}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["adexium_daily_ads_watched"] >= 7:
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "adexium", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "adexium_daily_ads_watched": user["adexium_daily_ads_watched"]
+        "daily_ads_watched": user["daily_ads_watched"]
     }
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
-    client_ip = request.client.host
-    logger.info(f"Withdraw request for {user_id} from IP {client_ip}")
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
@@ -273,9 +239,7 @@ async def withdraw(user_id: int, request: Request):
     return {"success": False, "message": "Insufficient balance"}
 
 @app.post("/api/verify_channel/{user_id}")
-async def verify_channel(user_id: int, request: Request):
-    client_ip = request.client.host
-    logger.info(f"Channel verification request for {user_id} from IP {client_ip}")
+async def verify_channel(user_id: int):
     if await verify_channel_membership(user_id):
         return {"success": True, "message": "Channel membership verified"}
     return {"success": False, "message": "You must join the channel first"}
@@ -291,118 +255,7 @@ async def mini_app():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize Adexium widget
-            let adexiumWidget;
-            try {
-                adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
-                window.adexiumWidget = adexiumWidget;
-                adexiumWidget.autoMode();
-            } catch (e) {
-                console.error('Failed to initialize Adexium widget:', e);
-            }
-
-            // VPN detection using ipapi.co
-            async function checkVPN() {
-                try {
-                    const response = await fetch('https://ipapi.co/json/');
-                    const data = await response.json();
-                    const isVPN = data.network && (data.network.includes('vpn') || data.security?.vpn || data.security?.proxy);
-                    return { isVPN, country: data.country_name || 'Unknown' };
-                } catch (e) {
-                    console.error('VPN check failed:', e);
-                    return { isVPN: false, country: 'Unknown' };
-                }
-            }
-
-            // Check ad script loading
-            const monetagBtn = document.getElementById('monetag-ad-btn');
-            const adexiumBtn = document.getElementById('adexium-ad-btn');
-            const monetagMessage = document.getElementById('monetag-message');
-            const adexiumMessage = document.getElementById('adexium-message');
-
-            const checkScripts = async () => {
-                const { isVPN, country } = await checkVPN();
-                console.log(`VPN status: ${isVPN}, Country: ${country}`);
-
-                // Monetag: Should work without VPN
-                const checkMonetag = setInterval(() => {
-                    if (typeof window['show_{MONETAG_ZONE}'] === 'function') {
-                        if (isVPN) {
-                            monetagMessage.textContent = 'Please disable VPN to watch Monetag ads';
-                            monetagBtn.disabled = true;
-                        } else {
-                            monetagMessage.textContent = '';
-                            monetagBtn.disabled = false;
-                        }
-                        clearInterval(checkMonetag);
-                    }
-                }, 500);
-
-                // Adexium: Should work with VPN
-                const checkAdexium = setInterval(() => {
-                    if (window.adexiumWidget && typeof window.adexiumWidget.show === 'function') {
-                        if (!isVPN) {
-                            adexiumMessage.textContent = 'Please enable VPN to watch Adexium ads';
-                            adexiumBtn.disabled = true;
-                        } else {
-                            adexiumMessage.textContent = '';
-                            adexiumBtn.disabled = false;
-                        }
-                        clearInterval(checkAdexium);
-                    }
-                }, 500);
-
-                // Timeout after 15 seconds
-                setTimeout(() => {
-                    clearInterval(checkMonetag);
-                    clearInterval(checkAdexium);
-                    if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
-                        console.error('Monetag script not loaded');
-                        monetagMessage.textContent = 'Monetag ads failed to load. Try disabling VPN.';
-                        monetagBtn.disabled = true;
-                    }
-                    if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
-                        console.error('Adexium widget not loaded');
-                        adexiumMessage.textContent = 'Adexium ads failed to load. Try enabling VPN.';
-                        adexiumBtn.disabled = true;
-                    }
-                }, 15000);
-            };
-
-            checkScripts();
-
-            // Retry loading scripts if they fail
-            const retryScripts = () => {
-                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
-                    const monetagScript = document.createElement('script');
-                    monetagScript.src = '//libtl.com/sdk.js';
-                    monetagScript.setAttribute('data-zone', '{MONETAG_ZONE}');
-                    monetagScript.setAttribute('data-sdk', 'show_{MONETAG_ZONE}');
-                    document.head.appendChild(monetagScript);
-                }
-                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
-                    const adexiumScript = document.createElement('script');
-                    adexiumScript.src = 'https://cdn.tgads.space/assets/js/adexium-widget.min.js';
-                    adexiumScript.onload = () => {
-                        try {
-                            window.adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
-                            window.adexiumWidget.autoMode();
-                        } catch (e) {
-                            console.error('Failed to reload Adexium widget:', e);
-                        }
-                    };
-                    document.head.appendChild(adexiumScript);
-                }
-            };
-
-            // Retry after 20 seconds if initial load fails
-            setTimeout(retryScripts, 20000);
-        });
-    </script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_MONETAG_ZONE"></script>
     <style>
         * {
             margin: 0;
@@ -423,9 +276,9 @@ async def mini_app():
             min-height: 100vh;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: center; /* Center content vertically */
             padding-top: 2rem;
-            padding-bottom: 5rem;
+            padding-bottom: 5rem; /* Space for fixed nav bar */
         }
 
         .page.active {
@@ -434,13 +287,13 @@ async def mini_app():
 
         .header {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 2rem; /* Adjusted spacing */
         }
 
         .header h2 {
             font-size: 2rem;
             font-weight: 700;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.75rem; /* Adjusted spacing */
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
@@ -448,7 +301,7 @@ async def mini_app():
             font-size: 1.125rem;
             font-weight: 400;
             opacity: 0.9;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.75rem; /* Adjusted spacing */
         }
 
         .highlight {
@@ -477,34 +330,13 @@ async def mini_app():
         .card h3 {
             font-size: 1.25rem;
             font-weight: 600;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
         }
 
         .card p {
             font-size: 1rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             opacity: 0.9;
-        }
-
-        .ad-provider {
-            margin-bottom: 1rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .ad-provider:last-child {
-            border-bottom: none;
-        }
-
-        .ad-provider h4 {
-            font-size: 1.1rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .ad-message {
-            font-size: 0.9rem;
-            color: #ff6b6b;
-            margin-top: 0.5rem;
         }
 
         .nav {
@@ -557,16 +389,11 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
-        .watch-btn:disabled {
-            background: #6b7280;
-            cursor: not-allowed;
-        }
-
-        .watch-btn:hover:not(:disabled), .btn-primary:hover {
+        .watch-btn:hover, .btn-primary:hover {
             background: #059669;
             transform: scale(1.02);
         }
@@ -583,7 +410,7 @@ async def mini_app():
             width: 100%;
             text-decoration: none;
             display: inline-block;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -601,7 +428,7 @@ async def mini_app():
             cursor: pointer;
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -620,7 +447,7 @@ async def mini_app():
             font-size: 1rem;
             font-weight: 600;
             width: 100%;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
@@ -637,7 +464,7 @@ async def mini_app():
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
             font-size: 1rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
@@ -686,12 +513,12 @@ async def mini_app():
         .verify-box h2 {
             font-size: 1.5rem;
             font-weight: 700;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.75rem; /* Adjusted spacing */
         }
 
         .verify-box p {
             font-size: 0.875rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; /* Normal spacing */
             opacity: 0.8;
         }
 
@@ -709,9 +536,9 @@ async def mini_app():
 
         @media (max-width: 640px) {
             .page {
-                justify-content: center;
+                justify-content: center; /* Center content on mobile */
                 padding-top: 1.5rem;
-                padding-bottom: 4rem;
+                padding-bottom: 4rem; /* Slightly reduced for balance */
             }
             .header h2 {
                 font-size: 1.75rem;
@@ -760,27 +587,17 @@ async def mini_app():
             <button id="verify-btn" class="btn-primary">Verify</button>
         </div>
     </div>
-    <div id="tasks" class="page active">
+    <div id="Menu" class="page active">
         <div class="header">
-            <h2>Tasks</h2>
+            <h2>Account Info</h2>
             <p>ID: <span id="user-id"></span></p>
             <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
         </div>
         <div class="card">
-            <h3>Watch Ads</h3>
+            <h3>Earn with Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
-            <div class="ad-provider">
-                <h4>Monetag Ads</h4>
-                <p>Daily Limit: <span id="monetag-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="monetag-ad-btn" disabled>Watch Monetag Ad</button>
-                <p id="monetag-message" class="ad-message"></p>
-            </div>
-            <div class="ad-provider">
-                <h4>Adexium Ads</h4>
-                <p>Daily Limit: <span id="adexium-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="adexium-ad-btn" disabled>Watch Adexium Ad</button>
-                <p id="adexium-message" class="ad-message"></p>
-            </div>
+            <p>Daily Limit: <span id="daily-limit" class="highlight">0</span></p>
+            <button class="watch-btn" id="watch-ad-btn">Watch Ad</button>
         </div>
     </div>
     <div id="invite" class="page">
@@ -807,7 +624,7 @@ async def mini_app():
         </div>
     </div>
     <div class="nav">
-        <button class="nav-btn active" onclick="showPage('tasks')" data-page="tasks">
+        <button class="nav-btn active" onclick="showPage('Menu')" data-page="Menu">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
             Tasks
         </button>
@@ -852,8 +669,7 @@ async def mini_app():
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/7';
-                document.getElementById('adexium-limit').textContent = data.adexium_daily_ads_watched + '/7';
+                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/30';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -866,7 +682,7 @@ async def mini_app():
                 }
             } catch (error) {
                 console.error('loadData error:', error);
-                tg.showAlert('Failed to load data: ' + error.message);
+                tg.showAlert('Failed to load data');
             }
         }
 
@@ -891,87 +707,48 @@ async def mini_app():
                 }
             } catch (error) {
                 console.error('verifyChannel error:', error);
-                tg.showAlert('Failed to verify channel membership: ' + error.message);
+                tg.showAlert('Failed to verify channel membership');
             } finally {
                 verifyBtn.disabled = false;
             }
         }
 
-        async function watchMonetagAd() {
-            const watchBtn = document.getElementById('monetag-ad-btn');
-            const monetagMessage = document.getElementById('monetag-message');
+        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
+
+        async function watchAd() {
+            const watchBtn = document.getElementById('watch-ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
-                    throw new Error('Monetag ad function not available. Try disabling VPN.');
-                }
-                await window['show_{MONETAG_ZONE}']();
-                const response = await Promise.race([
-                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Monetag ad watched! +20 $DOGS');
-                    monetagMessage.textContent = '';
-                } else if (data.limit_reached) {
-                    tg.showAlert('Monetag daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Monetag ad');
-                }
-                await loadData();
-            } catch (error) {
-                console.error('Monetag ad error:', error);
-                monetagMessage.textContent = 'Monetag ads failed to load. Try disabling VPN.';
-                tg.showAlert('Monetag ad failed to load: ' + error.message);
+                await show_MONETAG_ZONE().then(async () => {
+                    const response = await Promise.race([
+                        fetch('/api/watch_ad/' + userId, { method: 'POST' }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                    ]);
+                    const data = await response.json();
+                    if (data.success) {
+                        tg.showAlert('Ad watched! +20 $DOGS');
+                    } else if (data.limit_reached) {
+                        tg.showAlert('Daily limit reached!');
+                    } else if (data.message === 'Channel membership not verified') {
+                        tg.showAlert('Please verify channel membership first!');
+                        setCachedVerificationStatus(false);
+                        document.getElementById('verify-overlay').style.display = 'flex';
+                    } else {
+                        tg.showAlert('Error watching ad');
+                    }
+                    await loadData();
+                }).catch(error => {
+                    tg.showAlert('Ad failed to load');
+                    console.error('Monetag error:', error);
+                });
             } finally {
-                watchBtn.disabled = typeof window['show_{MONETAG_ZONE}'] !== 'function';
-                watchBtn.textContent = 'Watch Monetag Ad';
+                watchBtn.disabled = false;
+                watchBtn.textContent = 'Watch Ad';
             }
         }
 
-        async function watchAdexiumAd() {
-            const watchBtn = document.getElementById('adexium-ad-btn');
-            const adexiumMessage = document.getElementById('adexium-message');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
-                    throw new Error('Adexium ad function not available. Try enabling VPN.');
-                }
-                await window.adexiumWidget.show();
-                const response = await Promise.race([
-                    fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Adexium ad watched! +20 $DOGS');
-                    adexiumMessage.textContent = '';
-                } else if (data.limit_reached) {
-                    tg.showAlert('Adexium daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Adexium ad');
-                }
-                await loadData();
-            } catch (error) {
-                console.error('Adexium ad error:', error);
-                adexiumMessage.textContent = 'Adexium ads failed to load. Try enabling VPN.';
-                tg.showAlert('Adexium ad failed to load: ' + error.message);
-            } finally {
-                watchBtn.disabled = !window.adexiumWidget || typeof window.adexiumWidget.show !== 'function';
-                watchBtn.textContent = 'Watch Adexium Ad';
-            }
-        }
+        document.getElementById('watch-ad-btn').addEventListener('click', watchAd);
 
         async function copyLink() {
             try {
@@ -980,7 +757,7 @@ async def mini_app():
                 tg.showAlert('Link copied!');
             } catch (error) {
                 console.error('copyLink error:', error);
-                tg.showAlert('Failed to copy link: ' + error.message);
+                tg.showAlert('Failed to copy link');
             }
         }
 
@@ -991,27 +768,22 @@ async def mini_app():
                 tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
                 return;
             }
-            try {
-                const response = await Promise.race([
-                    fetch('/api/withdraw/' + userId, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({amount, binance_id: binanceId})
-                    }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Withdraw successful! Credited within 24 hours.');
-                    document.getElementById('amount').value = '';
-                    document.getElementById('binance-id').value = '';
-                    await loadData();
-                } else {
-                    tg.showAlert(data.message || 'Withdraw failed');
-                }
-            } catch (error) {
-                console.error('withdraw error:', error);
-                tg.showAlert('Withdraw failed: ' + error.message);
+            const response = await Promise.race([
+                fetch('/api/withdraw/' + userId, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({amount, binance_id: binanceId})
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+            ]);
+            const data = await response.json();
+            if (data.success) {
+                tg.showAlert('Withdraw successful! Credited within 24 hours.');
+                document.getElementById('amount').value = '';
+                document.getElementById('binance-id').value = '';
+                await loadData();
+            } else {
+                tg.showAlert(data.message || 'Withdraw failed');
             }
         }
 
@@ -1038,21 +810,15 @@ async def mini_app():
             }
         }
 
-        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
-        document.getElementById('monetag-ad-btn').addEventListener('click', watchMonetagAd);
-        document.getElementById('adexium-ad-btn').addEventListener('click', watchAdexiumAd);
         loadData();
     </script>
 </body>
 </html>
-"""
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{ADEXIUM_WID}", ADEXIUM_WID))
-
+    """
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("show_MONETAG_ZONE", f"show_{MONETAG_ZONE}").replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
-    client_ip = request.client.host
-    logger.info(f"Webhook request from IP {client_ip}")
     update_json = await request.json()
     update = Update.de_json(update_json, application.bot)
     await application.process_update(update)
@@ -1097,7 +863,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-# ----------------- SELF-PINGING TASK -----------------
+            # ----------------- SELF-PINGING TASK -----------------
 PING_INTERVAL = 240  # 4 minutes in seconds
 
 def start_ping_task():
