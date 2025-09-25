@@ -190,7 +190,9 @@ async def debug_users():
 
 # API endpoints
 @app.get("/api/user/{user_id}")
-async def get_user(user_id: int):
+async def get_user(user_id: int, request: Request):
+    client_ip = request.client.host
+    logger.info(f"User {user_id} accessed /api/user from IP {client_ip}")
     user = await get_user_data(user_id)
     return {
         "points": user["points"],
@@ -202,8 +204,9 @@ async def get_user(user_id: int):
     }
 
 @app.post("/api/watch_ad/{user_id}")
-async def watch_monetag_ad(user_id: int):
-    logger.info(f"Monetag ad watch request for {user_id}")
+async def watch_monetag_ad(user_id: int, request: Request):
+    client_ip = request.client.host
+    logger.info(f"Monetag ad watch request for {user_id} from IP {client_ip}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
@@ -230,8 +233,9 @@ async def watch_monetag_ad(user_id: int):
     }
 
 @app.post("/api/watch_adexium/{user_id}")
-async def watch_adexium_ad(user_id: int):
-    logger.info(f"Adexium ad watch request for {user_id}")
+async def watch_adexium_ad(user_id: int, request: Request):
+    client_ip = request.client.host
+    logger.info(f"Adexium ad watch request for {user_id} from IP {client_ip}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
@@ -257,6 +261,8 @@ async def watch_adexium_ad(user_id: int):
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
+    client_ip = request.client.host
+    logger.info(f"Withdraw request for {user_id} from IP {client_ip}")
     data = await request.json()
     amount = float(data["amount"])
     binance_id = data["binance_id"]
@@ -267,7 +273,9 @@ async def withdraw(user_id: int, request: Request):
     return {"success": False, "message": "Insufficient balance"}
 
 @app.post("/api/verify_channel/{user_id}")
-async def verify_channel(user_id: int):
+async def verify_channel(user_id: int, request: Request):
+    client_ip = request.client.host
+    logger.info(f"Channel verification request for {user_id} from IP {client_ip}")
     if await verify_channel_membership(user_id):
         return {"success": True, "message": "Channel membership verified"}
     return {"success": False, "message": "You must join the channel first"}
@@ -284,12 +292,115 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
-    <script type="text/javascript">
+    <script src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
-            window.adexiumWidget = adexiumWidget; // Store globally for later use
-            adexiumWidget.autoMode();
+            // Initialize Adexium widget
+            let adexiumWidget;
+            try {
+                adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
+                window.adexiumWidget = adexiumWidget;
+                adexiumWidget.autoMode();
+            } catch (e) {
+                console.error('Failed to initialize Adexium widget:', e);
+            }
+
+            // VPN detection using ipapi.co
+            async function checkVPN() {
+                try {
+                    const response = await fetch('https://ipapi.co/json/');
+                    const data = await response.json();
+                    const isVPN = data.network && (data.network.includes('vpn') || data.security?.vpn || data.security?.proxy);
+                    return { isVPN, country: data.country_name || 'Unknown' };
+                } catch (e) {
+                    console.error('VPN check failed:', e);
+                    return { isVPN: false, country: 'Unknown' };
+                }
+            }
+
+            // Check ad script loading
+            const monetagBtn = document.getElementById('monetag-ad-btn');
+            const adexiumBtn = document.getElementById('adexium-ad-btn');
+            const monetagMessage = document.getElementById('monetag-message');
+            const adexiumMessage = document.getElementById('adexium-message');
+
+            const checkScripts = async () => {
+                const { isVPN, country } = await checkVPN();
+                console.log(`VPN status: ${isVPN}, Country: ${country}`);
+
+                // Monetag: Should work without VPN
+                const checkMonetag = setInterval(() => {
+                    if (typeof window['show_{MONETAG_ZONE}'] === 'function') {
+                        if (isVPN) {
+                            monetagMessage.textContent = 'Please disable VPN to watch Monetag ads';
+                            monetagBtn.disabled = true;
+                        } else {
+                            monetagMessage.textContent = '';
+                            monetagBtn.disabled = false;
+                        }
+                        clearInterval(checkMonetag);
+                    }
+                }, 500);
+
+                // Adexium: Should work with VPN
+                const checkAdexium = setInterval(() => {
+                    if (window.adexiumWidget && typeof window.adexiumWidget.show === 'function') {
+                        if (!isVPN) {
+                            adexiumMessage.textContent = 'Please enable VPN to watch Adexium ads';
+                            adexiumBtn.disabled = true;
+                        } else {
+                            adexiumMessage.textContent = '';
+                            adexiumBtn.disabled = false;
+                        }
+                        clearInterval(checkAdexium);
+                    }
+                }, 500);
+
+                // Timeout after 15 seconds
+                setTimeout(() => {
+                    clearInterval(checkMonetag);
+                    clearInterval(checkAdexium);
+                    if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
+                        console.error('Monetag script not loaded');
+                        monetagMessage.textContent = 'Monetag ads failed to load. Try disabling VPN.';
+                        monetagBtn.disabled = true;
+                    }
+                    if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
+                        console.error('Adexium widget not loaded');
+                        adexiumMessage.textContent = 'Adexium ads failed to load. Try enabling VPN.';
+                        adexiumBtn.disabled = true;
+                    }
+                }, 15000);
+            };
+
+            checkScripts();
+
+            // Retry loading scripts if they fail
+            const retryScripts = () => {
+                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
+                    const monetagScript = document.createElement('script');
+                    monetagScript.src = '//libtl.com/sdk.js';
+                    monetagScript.setAttribute('data-zone', '{MONETAG_ZONE}');
+                    monetagScript.setAttribute('data-sdk', 'show_{MONETAG_ZONE}');
+                    document.head.appendChild(monetagScript);
+                }
+                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
+                    const adexiumScript = document.createElement('script');
+                    adexiumScript.src = 'https://cdn.tgads.space/assets/js/adexium-widget.min.js';
+                    adexiumScript.onload = () => {
+                        try {
+                            window.adexiumWidget = new AdexiumWidget({wid: '{ADEXIUM_WID}', adFormat: 'interstitial'});
+                            window.adexiumWidget.autoMode();
+                        } catch (e) {
+                            console.error('Failed to reload Adexium widget:', e);
+                        }
+                    };
+                    document.head.appendChild(adexiumScript);
+                }
+            };
+
+            // Retry after 20 seconds if initial load fails
+            setTimeout(retryScripts, 20000);
         });
     </script>
     <style>
@@ -390,6 +501,12 @@ async def mini_app():
             margin-bottom: 0.5rem;
         }
 
+        .ad-message {
+            font-size: 0.9rem;
+            color: #ff6b6b;
+            margin-top: 0.5rem;
+        }
+
         .nav {
             position: fixed;
             bottom: 0;
@@ -444,7 +561,12 @@ async def mini_app():
             transition: background 0.2s ease, transform 0.2s ease;
         }
 
-        .watch-btn:hover, .btn-primary:hover {
+        .watch-btn:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+
+        .watch-btn:hover:not(:disabled), .btn-primary:hover {
             background: #059669;
             transform: scale(1.02);
         }
@@ -650,12 +772,14 @@ async def mini_app():
             <div class="ad-provider">
                 <h4>Monetag Ads</h4>
                 <p>Daily Limit: <span id="monetag-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="monetag-ad-btn">Watch Monetag Ad</button>
+                <button class="watch-btn" id="monetag-ad-btn" disabled>Watch Monetag Ad</button>
+                <p id="monetag-message" class="ad-message"></p>
             </div>
             <div class="ad-provider">
                 <h4>Adexium Ads</h4>
                 <p>Daily Limit: <span id="adexium-limit" class="highlight">0/7</span></p>
-                <button class="watch-btn" id="adexium-ad-btn">Watch Adexium Ad</button>
+                <button class="watch-btn" id="adexium-ad-btn" disabled>Watch Adexium Ad</button>
+                <p id="adexium-message" class="ad-message"></p>
             </div>
         </div>
     </div>
@@ -775,10 +899,14 @@ async def mini_app():
 
         async function watchMonetagAd() {
             const watchBtn = document.getElementById('monetag-ad-btn');
+            const monetagMessage = document.getElementById('monetag-message');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await window[`show_{MONETAG_ZONE}`]();
+                if (typeof window['show_{MONETAG_ZONE}'] !== 'function') {
+                    throw new Error('Monetag ad function not available. Try disabling VPN.');
+                }
+                await window['show_{MONETAG_ZONE}']();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -786,6 +914,7 @@ async def mini_app():
                 const data = await response.json();
                 if (data.success) {
                     tg.showAlert('Monetag ad watched! +20 $DOGS');
+                    monetagMessage.textContent = '';
                 } else if (data.limit_reached) {
                     tg.showAlert('Monetag daily limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
@@ -798,18 +927,23 @@ async def mini_app():
                 await loadData();
             } catch (error) {
                 console.error('Monetag ad error:', error);
+                monetagMessage.textContent = 'Monetag ads failed to load. Try disabling VPN.';
                 tg.showAlert('Monetag ad failed to load: ' + error.message);
             } finally {
-                watchBtn.disabled = false;
+                watchBtn.disabled = typeof window['show_{MONETAG_ZONE}'] !== 'function';
                 watchBtn.textContent = 'Watch Monetag Ad';
             }
         }
 
         async function watchAdexiumAd() {
             const watchBtn = document.getElementById('adexium-ad-btn');
+            const adexiumMessage = document.getElementById('adexium-message');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
+                if (!window.adexiumWidget || typeof window.adexiumWidget.show !== 'function') {
+                    throw new Error('Adexium ad function not available. Try enabling VPN.');
+                }
                 await window.adexiumWidget.show();
                 const response = await Promise.race([
                     fetch('/api/watch_adexium/' + userId, { method: 'POST' }),
@@ -818,6 +952,7 @@ async def mini_app():
                 const data = await response.json();
                 if (data.success) {
                     tg.showAlert('Adexium ad watched! +20 $DOGS');
+                    adexiumMessage.textContent = '';
                 } else if (data.limit_reached) {
                     tg.showAlert('Adexium daily limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
@@ -830,9 +965,10 @@ async def mini_app():
                 await loadData();
             } catch (error) {
                 console.error('Adexium ad error:', error);
+                adexiumMessage.textContent = 'Adexium ads failed to load. Try enabling VPN.';
                 tg.showAlert('Adexium ad failed to load: ' + error.message);
             } finally {
-                watchBtn.disabled = false;
+                watchBtn.disabled = !window.adexiumWidget || typeof window.adexiumWidget.show !== 'function';
                 watchBtn.textContent = 'Watch Adexium Ad';
             }
         }
@@ -915,6 +1051,8 @@ async def mini_app():
 # Telegram webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
+    client_ip = request.client.host
+    logger.info(f"Webhook request from IP {client_ip}")
     update_json = await request.json()
     update = Update.de_json(update_json, application.bot)
     await application.process_update(update)
