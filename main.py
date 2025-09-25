@@ -76,7 +76,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
-            "daily_ads_watched": {zone: 0 for zone in MONETAG_ZONES},
+            "daily_ads_watched": {f"zone_{zone}": 0 for zone in MONETAG_ZONES},
             "last_ad_date": None,
             "invited_friends": 0,
             "binance_id": None,
@@ -112,14 +112,14 @@ async def update_daily_ads(user_id: int, zone: str, ads_watched: int):
     if user_id_str in users:
         user_data = users[user_id_str]
         if user_data["last_ad_date"] == today:
-            user_data["daily_ads_watched"][zone] += ads_watched
+            user_data["daily_ads_watched"][f"zone_{zone}"] += ads_watched
         else:
-            user_data["daily_ads_watched"] = {zone: 0 for zone in MONETAG_ZONES}
-            user_data["daily_ads_watched"][zone] = ads_watched
+            user_data["daily_ads_watched"] = {f"zone_{zone}": 0 for zone in MONETAG_ZONES}
+            user_data["daily_ads_watched"][f"zone_{zone}"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
         total_ads = sum(user_data["daily_ads_watched"].values())
-        logger.info(f"Updated ads for {user_id} in zone {zone}: {user_data['daily_ads_watched'][zone]}/7, total: {total_ads}/28")
+        logger.info(f"Updated ads for {user_id} in zone {zone}: {user_data['daily_ads_watched'][f'zone_{zone}']}/7, total: {total_ads}/28")
     else:
         logger.error(f"Cannot update ads: user {user_id} not found")
 
@@ -218,7 +218,7 @@ async def watch_ad(user_id: int, zone: str):
         logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
-    if user["last_ad_date"] == today and user["daily_ads_watched"].get(zone, 0) >= 7:
+    if user["last_ad_date"] == today and user["daily_ads_watched"].get(f"zone_{zone}", 0) >= 7:
         logger.info(f"Zone {zone} limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
@@ -238,7 +238,7 @@ async def confirm_ad(user_id: int, zone: str):
         logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
-    if user["last_ad_date"] == today and user["daily_ads_watched"].get(zone, 0) >= 7:
+    if user["last_ad_date"] == today and user["daily_ads_watched"].get(f"zone_{zone}", 0) >= 7:
         logger.info(f"Zone {zone} limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
@@ -246,12 +246,9 @@ async def confirm_ad(user_id: int, zone: str):
     await update_points(user_id, 20.0)
 
     invited_by = user.get("invited_by")
-    logger.info(f"Referrer check for {user_id}: invited_by = {invited_by}")
     if invited_by:
         logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
-    else:
-        logger.info(f"No referrer for {user_id}")
 
     user = await get_user_data(user_id)
     total_ads = sum(user["daily_ads_watched"].values())
@@ -364,6 +361,18 @@ async def mini_app():
             font-size: 1rem;
             margin-bottom: 1rem;
             opacity: 0.9;
+        }
+        .ad-provider {
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .ad-provider:last-child {
+            border-bottom: none;
+        }
+        .ad-provider h4 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
         }
         .nav {
             position: fixed;
@@ -595,20 +604,26 @@ async def mini_app():
             <button id="verify-btn" class="btn-primary">Verify</button>
         </div>
     </div>
-    <div id="Menu" class="page active">
+    <div id="tasks" class="page active">
         <div class="header">
-            <h2>Account Info</h2>
+            <h2>Tasks</h2>
             <p>ID: <span id="user-id"></span></p>
             <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
+            <p>Total Daily Limit: <span id="total-limit" class="highlight">0/28</span></p>
         </div>
         <div class="card">
-            <h3>Earn with Ads</h3>
+            <h3>Watch Ads</h3>
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
-            <p>Total Daily Limit: <span id="daily-limit" class="highlight">0/28</span></p>
-            <p>Zone 1 (<span id="zone-9859391-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9859391" onclick="watchAd('9859391')">Watch Ad (Zone 1)</button></p>
-            <p>Zone 2 (<span id="zone-9930174-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930174" onclick="watchAd('9930174')">Watch Ad (Zone 2)</button></p>
-            <p>Zone 3 (<span id="zone-9930913-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930913" onclick="watchAd('9930913')">Watch Ad (Zone 3)</button></p>
-            <p>Zone 4 (<span id="zone-9930950-count">0/7</span>): <button class="watch-btn" id="watch-ad-btn-9930950" onclick="watchAd('9930950')">Watch Ad (Zone 4)</button></p>
+"""
+    for i, zone in enumerate(MONETAG_ZONES, 1):
+        html_content += f"""
+            <div class="ad-provider">
+                <h4>Monetag Zone {i}</h4>
+                <p>Daily Limit: <span id="zone-{zone}-limit" class="highlight">0/7</span></p>
+                <button class="watch-btn" id="zone-{zone}-ad-btn" onclick="watchAd('{zone}')">Watch Zone {i} Ad</button>
+            </div>
+"""
+    html_content += """
         </div>
     </div>
     <div id="invite" class="page">
@@ -635,7 +650,7 @@ async def mini_app():
         </div>
     </div>
     <div class="nav">
-        <button class="nav-btn active" onclick="showPage('Menu')" data-page="Menu">
+        <button class="nav-btn active" onclick="showPage('tasks')" data-page="tasks">
             <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
             Tasks
         </button>
@@ -681,15 +696,14 @@ async def mini_app():
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('daily-limit').textContent = data.daily_ads_watched + '/28';
+                document.getElementById('total-limit').textContent = data.daily_ads_watched + '/28';
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
-                // Update zone-specific ad counts and button states
                 MONETAG_ZONES.forEach(zone => {
-                    const countElement = document.getElementById(`zone-${zone}-count`);
-                    const button = document.getElementById(`watch-ad-btn-${zone}`);
-                    const adCount = data.daily_ads_per_zone[zone] || 0;
+                    const countElement = document.getElementById(`zone-${zone}-limit`);
+                    const button = document.getElementById(`zone-${zone}-ad-btn`);
+                    const adCount = data.daily_ads_per_zone[`zone_${zone}`] || 0;
                     countElement.textContent = `${adCount}/7`;
                     button.disabled = adCount >= 7;
                 });
@@ -734,21 +748,17 @@ async def mini_app():
             }
         }
 
-        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
-
         async function watchAd(zone) {
-            const button = document.getElementById(`watch-ad-btn-${zone}`);
-            button.disabled = true;
-            button.textContent = 'Loading...';
+            const watchBtn = document.getElementById(`zone-${zone}-ad-btn`);
+            watchBtn.disabled = true;
+            watchBtn.textContent = 'Watching...';
             try {
-                // Check if Monetag SDK is loaded for the zone
                 if (typeof window['show_' + zone] !== 'function') {
                     tg.showAlert('Ad system not loaded. Please try again later.');
                     console.error(`Monetag SDK not available for zone ${zone}`);
                     return;
                 }
 
-                // Check if ad can be watched
                 const response = await Promise.race([
                     fetch(`/api/watch_ad/${userId}/${zone}`, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
@@ -768,22 +778,20 @@ async def mini_app():
                     return;
                 }
 
-                // Show the ad
                 await window['show_' + zone]().then(async () => {
-                    // Confirm ad watch
                     const confirmResponse = await Promise.race([
                         fetch(`/api/confirm_ad/${userId}/${zone}`, { method: 'POST' }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                     ]);
                     const confirmData = await confirmResponse.json();
                     if (confirmData.success) {
-                        tg.showAlert('Ad watched! +20 $DOGS');
-                        await loadData();
+                        tg.showAlert(`Zone ${MONETAG_ZONES.indexOf(zone) + 1} ad watched! +20 $DOGS`);
                     } else if (confirmData.limit_reached) {
                         tg.showAlert('Ad limit reached for this zone or total daily limit!');
                     } else {
                         tg.showAlert('Error confirming ad');
                     }
+                    await loadData();
                 }).catch(error => {
                     tg.showAlert('Ad failed to load');
                     console.error(`Monetag error for zone ${zone}:`, error);
@@ -792,8 +800,8 @@ async def mini_app():
                 console.error(`watchAd error for zone ${zone}:`, error);
                 tg.showAlert('Failed to process ad');
             } finally {
-                button.textContent = `Watch Ad (Zone ${MONETAG_ZONES.indexOf(zone) + 1})`;
-                await loadData(); // Refresh button states
+                watchBtn.textContent = `Watch Zone ${MONETAG_ZONES.indexOf(zone) + 1} Ad`;
+                await loadData();
             }
         }
 
@@ -857,11 +865,12 @@ async def mini_app():
             }
         }
 
+        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
         loadData();
     </script>
 </body>
 </html>
-    """
+"""
     return HTMLResponse(html_content.replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 # Telegram webhook
 @app.post("/telegram/webhook")
