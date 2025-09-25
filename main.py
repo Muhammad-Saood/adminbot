@@ -19,7 +19,7 @@ load_dotenv()
 
 # Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = "jdsrhukds_bot"
+BOT_USERNAME = "clicktoearn5_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
