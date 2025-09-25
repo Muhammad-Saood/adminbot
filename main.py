@@ -139,7 +139,8 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
     if user_id_str in users and users[user_id_str]["points"] >= amount:
         users[user_id_str]["points"] -= amount
         users[user_id_str]["binance_id"] = binance_id
-forwarded_message = await application.bot.send_message(
+        await write_json(users)
+        await application.bot.send_message(
             chat_id=ADMIN_CHANNEL_ID,
             text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
         )
@@ -147,7 +148,7 @@ forwarded_message = await application.bot.send_message(
         return True
     else:
         logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
-    return False
+        return False
 
 async def verify_channel_membership(user_id: int) -> bool:
     try:
