@@ -232,7 +232,7 @@ async def watch_ad(user_id: int):
 
     invited_by = user.get("invited_by")
     if invited_by:
-        await update_points(invited_by, 0.05)
+        await update_points(invited_by, 0.035)
 
     user = await get_user_data(user_id)
     total_ads_watched = (
@@ -611,7 +611,7 @@ async def mini_app():
     <div id="invite" class="page">
         <div class="header">
             <h2>Invite Friends</h2>
-            <p>Invite friends by using the link given below and get 10% bonus of friends earning</p>
+            <p>Invite friends by using the link given below and get 7% bonus of friends earning</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
