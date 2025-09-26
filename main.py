@@ -10,7 +10,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 import uvicorn
 import requests
 from dotenv import load_dotenv
@@ -26,9 +26,9 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-MONETAG_ZONE1 = os.getenv("MONETAG_ZONE1", "9930174")
-MONETAG_ZONE2 = os.getenv("MONETAG_ZONE2", "9930913")
-MONETAG_ZONE3 = os.getenv("MONETAG_ZONE3", "9930950")
+MONETAG_ZONE1 = os.getenv("MONETAG_ZONE1", "9859392")
+MONETAG_ZONE2 = os.getenv("MONETAG_ZONE2", "9859393")
+MONETAG_ZONE3 = os.getenv("MONETAG_ZONE3", "9859394")
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -48,7 +48,6 @@ async def read_json() -> Dict[str, Any]:
                     return json.loads(content)
                 return {}
         except FileNotFoundError:
-            logger.warning(f"{USERS_FILE} not found")
             return {}
         except Exception as e:
             logger.error(f"Error reading {USERS_FILE}: {e}")
@@ -62,11 +61,10 @@ async def write_json(users: Dict[str, Any]):
 async def init_json():
     try:
         async with aiofiles.open(USERS_FILE, mode='a') as f:
-            pass  # Ensure file exists
+            pass
         users = await read_json()
         if not users:
             await write_json({})
-        logger.info(f"JSON initialized at {USERS_FILE}")
     except Exception as e:
         logger.error(f"JSON init failed: {e}")
         raise
@@ -91,7 +89,6 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "channel_verified": False
         }
         await write_json(users)
-        logger.info(f"Created user {user_id} with invited_by {invited_by}")
     return users[user_id_str], is_new
 
 async def get_user_data(user_id: int) -> dict:
@@ -107,7 +104,6 @@ async def update_points(user_id: int, points: float):
     if user_id_str in users:
         users[user_id_str]["points"] += points
         await write_json(users)
-        logger.info(f"Updated points for {user_id}: +{points}, new total {users[user_id_str]['points']}")
     else:
         logger.error(f"Cannot update points: user {user_id} not found")
 
@@ -127,7 +123,6 @@ async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
             user_data[f"{platform}_daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
-        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/7")
     else:
         logger.error(f"Cannot update {platform} ads: user {user_id} not found")
 
@@ -137,7 +132,6 @@ async def add_invited_friend(user_id: int):
     if user_id_str in users:
         users[user_id_str]["invited_friends"] += 1
         await write_json(users)
-        logger.info(f"Incremented invited_friends for {user_id}: {users[user_id_str]['invited_friends']}")
     else:
         logger.error(f"Cannot add friend: user {user_id} not found")
 
@@ -150,12 +144,9 @@ async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
         await write_json(users)
         await application.bot.send_message(
             chat_id=ADMIN_CHANNEL_ID,
-            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} $DOGS\nBinance ID: {binance_id}"
+            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} RS\nBinance ID: {binance_id}"
         )
-        logger.info(f"Withdrawal for {user_id}: {amount} to {binance_id}")
         return True
-    else:
-        logger.error(f"Withdrawal failed for {user_id}: insufficient balance or user not found")
     return False
 
 async def verify_channel_membership(user_id: int) -> bool:
@@ -173,26 +164,12 @@ async def verify_channel_membership(user_id: int) -> bool:
                         if user_id_str in users:
                             users[user_id_str]["channel_verified"] = True
                             await write_json(users)
-                            logger.info(f"User {user_id} verified channel membership for {PUBLIC_CHANNEL_USERNAME}")
                         return True
-                    else:
-                        logger.info(f"User {user_id} not a member of channel {PUBLIC_CHANNEL_USERNAME}")
-                        return False
-                else:
-                    logger.error(f"Failed to verify channel membership for {user_id}: {await resp.text()}")
                     return False
+                return False
     except Exception as e:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
         return False
-
-# Debug endpoint to inspect JSON
-@app.get("/debug/users")
-async def debug_users():
-    try:
-        return await read_json()
-    except Exception as e:
-        logger.error(f"Debug users error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # API endpoints
 @app.get("/api/user/{user_id}")
@@ -212,16 +189,13 @@ async def get_user(user_id: int):
         "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
         "monetag_zone3_daily_ads_watched": user["monetag_zone3_daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "invited_by": None,
         "channel_verified": user["channel_verified"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int):
-    logger.info(f"Ad watch request for {user_id}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
-        logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
 
     today = dt.datetime.now().date().isoformat()
@@ -233,7 +207,6 @@ async def watch_ad(user_id: int):
     )
 
     if user["last_ad_date"] == today and total_ads_watched >= 28:
-        logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
     # Determine which zone to use
@@ -252,7 +225,6 @@ async def watch_ad(user_id: int):
         zone = MONETAG_ZONE3
         zone_key = "monetag_zone3"
     else:
-        logger.info(f"All zone limits reached for {user_id}")
         return {"success": False, "limit_reached": True}
 
     await update_daily_ads(user_id, zone_key, 1)
@@ -260,7 +232,6 @@ async def watch_ad(user_id: int):
 
     invited_by = user.get("invited_by")
     if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
 
     user = await get_user_data(user_id)
@@ -274,7 +245,6 @@ async def watch_ad(user_id: int):
         "success": True,
         "points": user["points"],
         "total_daily_ads_watched": total_ads_watched,
-        "current_zone": zone_key,
         "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
         "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"],
         "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
@@ -287,7 +257,7 @@ async def withdraw(user_id: int, request: Request):
     amount = float(data["amount"])
     binance_id = data["binance_id"]
     if amount < 2000 or not binance_id:
-        return {"success": False, "message": "Minimum 2000 $DOGS and Binance ID required"}
+        return {"success": False, "message": "Minimum 2000 RS and Binance ID required"}
     if await withdraw_points(user_id, amount, binance_id):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
@@ -322,10 +292,11 @@ async def mini_app():
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            background: linear-gradient(135deg, #4b6cb7, #182848);
+            background: white;
             min-height: 100vh;
-            color: #ffffff;
+            color: black;
             padding: 20px;
+            font-weight: bold;
         }
 
         .page {
@@ -345,70 +316,67 @@ async def mini_app():
         .header {
             text-align: center;
             margin-bottom: 2rem;
+            width: 100%;
+        }
+
+        .user-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+
+        .id-card, .balance-card {
+            background: #f0f0f0;
+            color: black;
+            padding: 10px;
+            border-radius: 10px;
+            width: 48%;
+            text-align: center;
         }
 
         .header h2 {
             font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.75rem;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        .header p {
-            font-size: 1.125rem;
-            font-weight: 400;
-            opacity: 0.9;
+            font-weight: bold;
             margin-bottom: 0.75rem;
         }
 
         .highlight {
-            color: #ffd700;
-            font-weight: 600;
+            color: #0000ff;
+            font-weight: bold;
         }
 
         .card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            background: #f0f0f0;
             padding: 1rem;
             border-radius: 1rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
             width: 100%;
             max-width: 400px;
             min-height: 200px;
             text-align: center;
             margin-bottom: 1rem;
-            transition: transform 0.3s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
         }
 
         .card h3 {
             font-size: 1.25rem;
-            font-weight: 600;
+            font-weight: bold;
             margin-bottom: 1rem;
         }
 
-        .card p {
-            font-size: 1rem;
+        .ad-info {
+            display: flex;
+            justify-content: space-between;
             margin-bottom: 1rem;
-            opacity: 0.9;
+            width: 100%;
         }
 
-        .ad-provider {
-            margin-bottom: 1rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .ad-provider:last-child {
-            border-bottom: none;
-        }
-
-        .ad-provider h4 {
-            font-size: 1.1rem;
-            margin-bottom: 0.5rem;
+        .small-card {
+            background: #f0f0f0;
+            color: black;
+            padding: 10px;
+            border-radius: 10px;
+            width: 48%;
+            text-align: center;
         }
 
         .nav {
@@ -417,9 +385,8 @@ async def mini_app():
             left: 0;
             right: 0;
             display: flex;
-            background: rgba(255, 255, 255, 0.1);
-            border-top: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
+            background: #f0f0f0;
+            border-top: 1px solid #ccc;
         }
 
         .nav-btn {
@@ -429,18 +396,13 @@ async def mini_app():
             background: none;
             border: none;
             cursor: pointer;
-            color: #ffffff;
+            color: black;
             font-size: 0.9rem;
-            font-weight: 500;
-            transition: background 0.3s ease, transform 0.2s ease;
-        }
-
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
+            font-weight: bold;
         }
 
         .nav-btn.active {
-            background: rgba(255, 255, 255, 0.25);
+            background: #ddd;
             border-radius: 0.5rem 0.5rem 0 0;
         }
 
@@ -448,106 +410,75 @@ async def mini_app():
             width: 24px;
             height: 24px;
             margin: 0 auto 0.25rem;
-            stroke: #ffffff;
+            stroke: black;
         }
 
         .watch-btn, .btn-primary {
             background: #10b981;
-            color: #ffffff;
+            color: white;
             padding: 0.75rem 1.5rem;
             border: none;
             border-radius: 0.5rem;
             cursor: pointer;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: bold;
             width: 100%;
             margin-bottom: 1rem;
-            transition: background 0.2s ease, transform 0.2s ease;
-        }
-
-        .watch-btn:hover, .btn-primary:hover {
-            background: #059669;
-            transform: scale(1.02);
         }
 
         .join-btn {
             background: #0284c7;
-            color: #ffffff;
+            color: white;
             padding: 0.75rem 1.5rem;
             border: none;
             border-radius: 0.5rem;
             cursor: pointer;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: bold;
             width: 100%;
             text-decoration: none;
             display: inline-block;
             margin-bottom: 1rem;
-            transition: background 0.2s ease, transform 0.2s ease;
-        }
-
-        .join-btn:hover {
-            background: #026ea5;
-            transform: scale(1.02);
         }
 
         .copy-btn {
             background: #6b7280;
-            color: #ffffff;
+            color: white;
             padding: 0.5rem 1rem;
             border: none;
             border-radius: 0.5rem;
             cursor: pointer;
             font-size: 0.9rem;
-            font-weight: 600;
+            font-weight: bold;
             margin-bottom: 1rem;
-            transition: background 0.2s ease, transform 0.2s ease;
-        }
-
-        .copy-btn:hover {
-            background: #5b616e;
-            transform: scale(1.02);
         }
 
         .withdraw-btn {
             background: #ef4444;
-            color: #ffffff;
+            color: white;
             padding: 0.75rem 1.5rem;
             border: none;
             border-radius: 0.5rem;
             cursor: pointer;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: bold;
             width: 100%;
             margin-bottom: 1rem;
-            transition: background 0.2s ease, transform 0.2s ease;
-        }
-
-        .withdraw-btn:hover {
-            background: #dc2626;
-            transform: scale(1.02);
         }
 
         .input {
             width: 100%;
             padding: 0.75rem;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid #ccc;
             border-radius: 0.5rem;
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
+            background: white;
+            color: black;
             font-size: 1rem;
             margin-bottom: 1rem;
-            transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
         .input::placeholder {
-            color: rgba(255, 255, 255, 0.5);
-        }
-
-        .input:focus {
-            outline: none;
-            border: 1px solid #60a5fa;
-            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+            color: #888;
         }
 
         .verify-overlay {
@@ -561,37 +492,28 @@ async def mini_app():
             justify-content: center;
             align-items: center;
             z-index: 1000;
-            transition: opacity 0.3s ease;
         }
 
         .verify-box {
-            background: #ffffff;
+            background: white;
             padding: 1rem;
             border-radius: 1rem;
             text-align: center;
             max-width: 320px;
             width: 100%;
             margin: 0 1rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            transform: scale(1);
-            transition: transform 0.3s ease;
-            color: #1f2937;
-        }
-
-        .verify-box:hover {
-            transform: scale(1.05);
+            color: black;
         }
 
         .verify-box h2 {
             font-size: 1.5rem;
-            font-weight: 700;
+            font-weight: bold;
             margin-bottom: 0.75rem;
         }
 
         .verify-box p {
             font-size: 0.875rem;
             margin-bottom: 1rem;
-            opacity: 0.8;
         }
 
         .verified-btn {
@@ -608,7 +530,6 @@ async def mini_app():
 
         @media (max-width: 640px) {
             .page {
-                justify-content: center;
                 padding-top: 1.5rem;
                 padding-bottom: 4rem;
             }
@@ -618,19 +539,9 @@ async def mini_app():
             .header {
                 margin-bottom: 1.5rem;
             }
-            .header p {
-                font-size: 1rem;
-                margin-bottom: 0.5rem;
-            }
             .card {
                 padding: 0.75rem;
                 min-height: 30vh;
-                margin-bottom: 0.75rem;
-            }
-            .card h3 {
-                margin-bottom: 0.75rem;
-            }
-            .card p {
                 margin-bottom: 0.75rem;
             }
             .watch-btn, .btn-primary, .join-btn, .copy-btn, .withdraw-btn, .input {
@@ -662,24 +573,24 @@ async def mini_app():
     <div id="tasks" class="page active">
         <div class="header">
             <h2>Tasks</h2>
-            <p>ID: <span id="user-id"></span></p>
-            <p>Balance: <span id="balance" class="highlight">0.00</span> $DOGS</p>
+            <div class="user-info">
+                <div class="id-card">ID: <span id="user-id"></span></div>
+                <div class="balance-card">Balance: <span id="balance" class="highlight">0.00</span> RS</div>
+            </div>
         </div>
         <div class="card">
-            <h3>Watch Ads</h3>
-            <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
-            <div class="ad-provider">
-                <h4>Monetag Ads</h4>
-                <p>Daily Limit: <span id="ad-limit" class="highlight">0/28</span></p>
-                <p>Current Zone: <span id="current-zone" class="highlight">Zone 1</span></p>
-                <button class="watch-btn" id="ad-btn">Watch Ad</button>
+            <h3>Watch Ad to Earn RS</h3>
+            <div class="ad-info">
+                <div class="small-card">1 AD = 20 RS</div>
+                <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
             </div>
+            <button class="watch-btn" id="ad-btn">Watch Ad</button>
         </div>
     </div>
     <div id="invite" class="page">
         <div class="header">
             <h2>Invite Friends</h2>
-            <p class="small-text">Invite friends by using the link given below and get 10% bonus of friends earning</p>
+            <p>Invite friends by using the link given below and get 10% bonus of friends earning</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
@@ -691,7 +602,7 @@ async def mini_app():
     <div id="withdraw" class="page">
         <div class="header">
             <h2>Withdraw</h2>
-            <p class="highlight">Minimum 2000 $DOGS</p>
+            <p class="highlight">Minimum 2000 RS</p>
         </div>
         <div class="card">
             <input type="number" id="amount" placeholder="Enter amount (min 2000)" class="input">
@@ -743,30 +654,10 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }
 
-                const response = await Promise.race([
-                    fetch('/api/user/' + userId),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                if (!response.ok) throw new Error('API failed: ' + response.status);
+                const response = await fetch('/api/user/' + userId);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
-
-                // Update current zone display
-                let currentZone = 'Zone 1';
-                if (data.monetag_daily_ads_watched < 7) {
-                    currentZone = 'Zone 1';
-                } else if (data.monetag_zone1_daily_ads_watched < 7) {
-                    currentZone = 'Zone 2';
-                } else if (data.monetag_zone2_daily_ads_watched < 7) {
-                    currentZone = 'Zone 3';
-                } else if (data.monetag_zone3_daily_ads_watched < 7) {
-                    currentZone = 'Zone 4';
-                } else {
-                    currentZone = 'All Zones Completed';
-                }
-                document.getElementById('current-zone').textContent = currentZone;
-
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -778,7 +669,6 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }
             } catch (error) {
-                console.error('loadData error:', error);
                 tg.showAlert('Failed to load data');
             }
         }
@@ -787,10 +677,7 @@ async def mini_app():
             const verifyBtn = document.getElementById('verify-btn');
             verifyBtn.disabled = true;
             try {
-                const response = await Promise.race([
-                    fetch('/api/verify_channel/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
+                const response = await fetch('/api/verify_channel/' + userId, { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
                     verifyBtn.textContent = 'Verified';
@@ -803,7 +690,6 @@ async def mini_app():
                     tg.showAlert('Please join the channel first!');
                 }
             } catch (error) {
-                console.error('verifyChannel error:', error);
                 tg.showAlert('Failed to verify channel membership');
             } finally {
                 verifyBtn.disabled = false;
@@ -815,42 +701,29 @@ async def mini_app():
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                // Fetch user data to determine current zone
-                const userResponse = await Promise.race([
-                    fetch('/api/user/' + userId),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                if (!userResponse.ok) throw new Error('API failed: ' + userResponse.status);
+                const userResponse = await fetch('/api/user/' + userId);
                 const userData = await userResponse.json();
 
                 let zone;
-                let zoneName;
                 if (userData.monetag_daily_ads_watched < 7) {
                     zone = MONETAG_ZONE;
-                    zoneName = 'Zone 1';
                 } else if (userData.monetag_zone1_daily_ads_watched < 7) {
                     zone = MONETAG_ZONE1;
-                    zoneName = 'Zone 2';
                 } else if (userData.monetag_zone2_daily_ads_watched < 7) {
                     zone = MONETAG_ZONE2;
-                    zoneName = 'Zone 3';
                 } else if (userData.monetag_zone3_daily_ads_watched < 7) {
                     zone = MONETAG_ZONE3;
-                    zoneName = 'Zone 4';
                 } else {
-                    tg.showAlert('All ad zones completed for today!');
+                    tg.showAlert('Daily ad limit reached!');
                     await loadData();
                     return;
                 }
 
                 await window[`show_${zone}`]();
-                const response = await Promise.race([
-                    fetch('/api/watch_ad/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
+                const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert(`Ad watched in ${zoneName}! +20 $DOGS`);
+                    tg.showAlert('Ad watched! +20 RS');
                 } else if (data.limit_reached) {
                     tg.showAlert('Daily ad limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
@@ -858,12 +731,11 @@ async def mini_app():
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
                 } else {
-                    tg.showAlert(`Error watching ad in ${zoneName}`);
+                    tg.showAlert('Error watching ad');
                 }
                 await loadData();
             } catch (error) {
                 tg.showAlert('Ad failed to load');
-                console.error('Ad error:', error);
             } finally {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
@@ -876,7 +748,6 @@ async def mini_app():
                 await navigator.clipboard.writeText(link);
                 tg.showAlert('Link copied!');
             } catch (error) {
-                console.error('copyLink error:', error);
                 tg.showAlert('Failed to copy link');
             }
         }
@@ -885,17 +756,14 @@ async def mini_app():
             const amount = parseFloat(document.getElementById('amount').value);
             const binanceId = document.getElementById('binance-id').value;
             if (amount < 2000 || !binanceId) {
-                tg.showAlert('Minimum 2000 $DOGS and Binance ID required!');
+                tg.showAlert('Minimum 2000 RS and Binance ID required!');
                 return;
             }
-            const response = await Promise.race([
-                fetch('/api/withdraw/' + userId, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({amount, binance_id: binanceId})
-                }),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-            ]);
+            const response = await fetch('/api/withdraw/' + userId, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({amount, binance_id: binanceId})
+            });
             const data = await response.json();
             if (data.success) {
                 tg.showAlert('Withdraw successful! Credited within 24 hours.');
@@ -910,24 +778,12 @@ async def mini_app():
         function showPage(page) {
             const overlay = document.getElementById('verify-overlay');
             if (overlay && overlay.style.display === 'flex') {
-                console.log('Navigation blocked: Verification overlay is visible');
                 return;
             }
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            const targetPage = document.getElementById(page);
-            if (targetPage) {
-                targetPage.classList.add('active');
-            } else {
-                console.error(`Page ${page} not found`);
-                return;
-            }
+            document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            const targetBtn = document.querySelector(`.nav-btn[data-page="${page}"]`);
-            if (targetBtn) {
-                targetBtn.classList.add('active');
-            } else {
-                console.error(`Button for page ${page} not found`);
-            }
+            document.querySelector(`.nav-btn[data-page="${page}"]`).classList.add('active');
         }
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
@@ -962,7 +818,6 @@ async def set_webhook():
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"/start by {update.effective_user.id}, args: {context.args}")
     args = context.args
     invited_by = None
     if args and args[0].startswith("ref"):
@@ -975,7 +830,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_new and invited_by and invited_by != update.effective_user.id:
         await add_invited_friend(invited_by)
-        logger.info(f"New referral: {update.effective_user.id} by {invited_by}")
         welcome_text = "Welcome! Referred by a friend. Launch Mini App!"
     else:
         welcome_text = "Welcome back! Launch Mini App!"
@@ -986,38 +840,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-# ----------------- SELF-PINGING TASK -----------------
-PING_INTERVAL = 240  # 4 minutes in seconds
+# SELF-PINGING TASK
+PING_INTERVAL = 240
 
 def start_ping_task():
     async def ping_self():
         while True:
             try:
                 if not BASE_URL:
-                    logger.error("BASE_URL is not set, cannot ping self")
                     await asyncio.sleep(PING_INTERVAL)
                     continue
-                current_time = dt.datetime.now(dt.UTC).strftime("%H:%M:%S UTC")
-                logger.info(f"Pinging self at {BASE_URL} at {current_time}")
                 response = requests.get(f"{BASE_URL}/", timeout=10)
                 response.raise_for_status()
-                logger.info(f"Self-ping successful: {response.status_code} at {current_time}")
-            except requests.exceptions.Timeout:
-                logger.error(f"Self-ping timed out for {BASE_URL} at {current_time}")
-            except requests.exceptions.ConnectionError:
-                logger.error(f"Self-ping connection error for {BASE_URL} at {current_time}")
             except Exception as e:
-                logger.error(f"Self-ping failed: {str(e)} at {current_time}")
+                pass
             await asyncio.sleep(PING_INTERVAL)
-
-    async def run_ping():
-        await ping_self()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_ping())
+    loop.run_until_complete(ping_self())
 
-# Start the ping task in a separate thread
 threading.Thread(target=start_ping_task, daemon=True).start()
 
 # Initialize
@@ -1028,9 +870,6 @@ async def initialize_app():
     if BASE_URL:
         webhook_url = f"{BASE_URL}/telegram/webhook"
         await application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set: {webhook_url}")
-    else:
-        logger.warning("BASE_URL not set - set manually via /set-webhook")
 
 async def validate_token():
     if not BOT_TOKEN:
@@ -1039,7 +878,6 @@ async def validate_token():
         async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
             if resp.status != 200:
                 raise ValueError(f"Invalid BOT_TOKEN: {await resp.text()}")
-    logger.info("BOT_TOKEN validated")
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
@@ -1048,6 +886,6 @@ if __name__ == "__main__":
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(initialize_app())
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info", workers=1)
+        uvicorn.run(app, host="0.0.0.0", port=PORT, workers=1)
     finally:
         loop.close()
