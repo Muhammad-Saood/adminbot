@@ -127,7 +127,7 @@ async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
             user_data[f"{platform}_daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
-        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/6")
+        logger.info(f"Updated {platform} ads for {user_id}: {user_data[f'{platform}_daily_ads_watched']}/7")
     else:
         logger.error(f"Cannot update {platform} ads: user {user_id} not found")
 
@@ -198,8 +198,15 @@ async def debug_users():
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = await get_user_data(user_id)
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
     return {
         "points": user["points"],
+        "total_daily_ads_watched": total_ads_watched,
         "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
         "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"],
         "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
@@ -210,114 +217,67 @@ async def get_user(user_id: int):
     }
 
 @app.post("/api/watch_ad/{user_id}")
-async def watch_monetag_ad(user_id: int):
-    logger.info(f"Monetag ad watch request for {user_id}")
+async def watch_ad(user_id: int):
+    logger.info(f"Ad watch request for {user_id}")
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         logger.info(f"User {user_id} not verified for channel membership")
         return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_daily_ads_watched"] >= 6:
-        logger.info(f"Monetag ad limit reached for {user_id}")
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "monetag", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"]
-    }
 
-@app.post("/api/watch_monetag_zone1/{user_id}")
-async def watch_monetag_zone1_ad(user_id: int):
-    logger.info(f"Monetag Zone1 ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        logger.info(f"User {user_id} not verified for channel membership")
-        return {"success": False, "message": "Channel membership not verified"}
-    
     today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_zone1_daily_ads_watched"] >= 6:
-        logger.info(f"Monetag Zone1 ad limit reached for {user_id}")
-        return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "monetag_zone1", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"]
-    }
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
 
-@app.post("/api/watch_monetag_zone2/{user_id}")
-async def watch_monetag_zone2_ad(user_id: int):
-    logger.info(f"Monetag Zone2 ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        logger.info(f"User {user_id} not verified for channel membership")
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_zone2_daily_ads_watched"] >= 6:
-        logger.info(f"Monetag Zone2 ad limit reached for {user_id}")
+    if user["last_ad_date"] == today and total_ads_watched >= 28:
+        logger.info(f"Total ad limit reached for {user_id}")
         return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "monetag_zone2", 1)
-    await update_points(user_id, 20.0)
-    
-    invited_by = user.get("invited_by")
-    if invited_by:
-        logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
-        await update_points(invited_by, 2.0)
-    
-    user = await get_user_data(user_id)
-    return {
-        "success": True,
-        "points": user["points"],
-        "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"]
-    }
 
-@app.post("/api/watch_monetag_zone3/{user_id}")
-async def watch_monetag_zone3_ad(user_id: int):
-    logger.info(f"Monetag Zone3 ad watch request for {user_id}")
-    user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        logger.info(f"User {user_id} not verified for channel membership")
-        return {"success": False, "message": "Channel membership not verified"}
-    
-    today = dt.datetime.now().date().isoformat()
-    if user["last_ad_date"] == today and user["monetag_zone3_daily_ads_watched"] >= 6:
-        logger.info(f"Monetag Zone3 ad limit reached for {user_id}")
+    # Determine which zone to use
+    zone = None
+    zone_key = None
+    if user["monetag_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE
+        zone_key = "monetag"
+    elif user["monetag_zone1_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE1
+        zone_key = "monetag_zone1"
+    elif user["monetag_zone2_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE2
+        zone_key = "monetag_zone2"
+    elif user["monetag_zone3_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE3
+        zone_key = "monetag_zone3"
+    else:
+        logger.info(f"All zone limits reached for {user_id}")
         return {"success": False, "limit_reached": True}
-    
-    await update_daily_ads(user_id, "monetag_zone3", 1)
+
+    await update_daily_ads(user_id, zone_key, 1)
     await update_points(user_id, 20.0)
-    
+
     invited_by = user.get("invited_by")
     if invited_by:
         logger.info(f"Granting 2 $DOGS to referrer {invited_by} for {user_id}'s ad")
         await update_points(invited_by, 2.0)
-    
+
     user = await get_user_data(user_id)
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
     return {
         "success": True,
         "points": user["points"],
+        "total_daily_ads_watched": total_ads_watched,
+        "current_zone": zone_key,
+        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
+        "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"],
+        "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
         "monetag_zone3_daily_ads_watched": user["monetag_zone3_daily_ads_watched"]
     }
 
@@ -710,23 +670,9 @@ async def mini_app():
             <p>1 Ad = <span class="highlight">20 $DOGS</span></p>
             <div class="ad-provider">
                 <h4>Monetag Ads</h4>
-                <p>Daily Limit: <span id="monetag-limit" class="highlight">0/6</span></p>
-                <button class="watch-btn" id="monetag-ad-btn">Watch Monetag Ad</button>
-            </div>
-            <div class="ad-provider">
-                <h4>Monetag Zone1 Ads</h4>
-                <p>Daily Limit: <span id="monetag-zone1-limit" class="highlight">0/6</span></p>
-                <button class="watch-btn" id="monetag-zone1-ad-btn">Watch Monetag Zone1 Ad</button>
-            </div>
-            <div class="ad-provider">
-                <h4>Monetag Zone2 Ads</h4>
-                <p>Daily Limit: <span id="monetag-zone2-limit" class="highlight">0/6</span></p>
-                <button class="watch-btn" id="monetag-zone2-ad-btn">Watch Monetag Zone2 Ad</button>
-            </div>
-            <div class="ad-provider">
-                <h4>Monetag Zone3 Ads</h4>
-                <p>Daily Limit: <span id="monetag-zone3-limit" class="highlight">0/6</span></p>
-                <button class="watch-btn" id="monetag-zone3-ad-btn">Watch Monetag Zone3 Ad</button>
+                <p>Daily Limit: <span id="ad-limit" class="highlight">0/28</span></p>
+                <p>Current Zone: <span id="current-zone" class="highlight">Zone 1</span></p>
+                <button class="watch-btn" id="ad-btn">Watch Ad</button>
             </div>
         </div>
     </div>
@@ -774,6 +720,11 @@ async def mini_app():
         const userId = tg.initDataUnsafe.user.id;
         document.getElementById('user-id').textContent = userId;
 
+        const MONETAG_ZONE = "{MONETAG_ZONE}";
+        const MONETAG_ZONE1 = "{MONETAG_ZONE1}";
+        const MONETAG_ZONE2 = "{MONETAG_ZONE2}";
+        const MONETAG_ZONE3 = "{MONETAG_ZONE3}";
+
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
         }
@@ -799,10 +750,23 @@ async def mini_app():
                 if (!response.ok) throw new Error('API failed: ' + response.status);
                 const data = await response.json();
                 document.getElementById('balance').textContent = data.points.toFixed(2);
-                document.getElementById('monetag-limit').textContent = data.monetag_daily_ads_watched + '/6';
-                document.getElementById('monetag-zone1-limit').textContent = data.monetag_zone1_daily_ads_watched + '/6';
-                document.getElementById('monetag-zone2-limit').textContent = data.monetag_zone2_daily_ads_watched + '/6';
-                document.getElementById('monetag-zone3-limit').textContent = data.monetag_zone3_daily_ads_watched + '/6';
+                document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
+
+                // Update current zone display
+                let currentZone = 'Zone 1';
+                if (data.monetag_daily_ads_watched < 7) {
+                    currentZone = 'Zone 1';
+                } else if (data.monetag_zone1_daily_ads_watched < 7) {
+                    currentZone = 'Zone 2';
+                } else if (data.monetag_zone2_daily_ads_watched < 7) {
+                    currentZone = 'Zone 3';
+                } else if (data.monetag_zone3_daily_ads_watched < 7) {
+                    currentZone = 'Zone 4';
+                } else {
+                    currentZone = 'All Zones Completed';
+                }
+                document.getElementById('current-zone').textContent = currentZone;
+
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -846,131 +810,63 @@ async def mini_app():
             }
         }
 
-        async function watchMonetagAd() {
-            const watchBtn = document.getElementById('monetag-ad-btn');
+        async function watchAd() {
+            const watchBtn = document.getElementById('ad-btn');
             watchBtn.disabled = true;
             watchBtn.textContent = 'Watching...';
             try {
-                await window[`show_{MONETAG_ZONE}`]();
+                // Fetch user data to determine current zone
+                const userResponse = await Promise.race([
+                    fetch('/api/user/' + userId),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
+                ]);
+                if (!userResponse.ok) throw new Error('API failed: ' + userResponse.status);
+                const userData = await userResponse.json();
+
+                let zone;
+                let zoneName;
+                if (userData.monetag_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE;
+                    zoneName = 'Zone 1';
+                } else if (userData.monetag_zone1_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE1;
+                    zoneName = 'Zone 2';
+                } else if (userData.monetag_zone2_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE2;
+                    zoneName = 'Zone 3';
+                } else if (userData.monetag_zone3_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE3;
+                    zoneName = 'Zone 4';
+                } else {
+                    tg.showAlert('All ad zones completed for today!');
+                    await loadData();
+                    return;
+                }
+
+                await window[`show_${zone}`]();
                 const response = await Promise.race([
                     fetch('/api/watch_ad/' + userId, { method: 'POST' }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
                 ]);
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert('Monetag ad watched! +20 $DOGS');
+                    tg.showAlert(`Ad watched in ${zoneName}! +20 $DOGS`);
                 } else if (data.limit_reached) {
-                    tg.showAlert('Monetag daily limit reached!');
+                    tg.showAlert('Daily ad limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
                     tg.showAlert('Please verify channel membership first!');
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
                 } else {
-                    tg.showAlert('Error watching Monetag ad');
+                    tg.showAlert(`Error watching ad in ${zoneName}`);
                 }
                 await loadData();
             } catch (error) {
-                tg.showAlert('Monetag ad failed to load');
-                console.error('Monetag error:', error);
+                tg.showAlert('Ad failed to load');
+                console.error('Ad error:', error);
             } finally {
                 watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Monetag Ad';
-            }
-        }
-
-        async function watchMonetagZone1Ad() {
-            const watchBtn = document.getElementById('monetag-zone1-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                await window[`show_{MONETAG_ZONE1}`]();
-                const response = await Promise.race([
-                    fetch('/api/watch_monetag_zone1/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Monetag Zone1 ad watched! +20 $DOGS');
-                } else if (data.limit_reached) {
-                    tg.showAlert('Monetag Zone1 daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Monetag Zone1 ad');
-                }
-                await loadData();
-            } catch (error) {
-                tg.showAlert('Monetag Zone1 ad failed to load');
-                console.error('Monetag Zone1 error:', error);
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Monetag Zone1 Ad';
-            }
-        }
-
-        async function watchMonetagZone2Ad() {
-            const watchBtn = document.getElementById('monetag-zone2-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                await window[`show_{MONETAG_ZONE2}`]();
-                const response = await Promise.race([
-                    fetch('/api/watch_monetag_zone2/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Monetag Zone2 ad watched! +20 $DOGS');
-                } else if (data.limit_reached) {
-                    tg.showAlert('Monetag Zone2 daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Monetag Zone2 ad');
-                }
-                await loadData();
-            } catch (error) {
-                tg.showAlert('Monetag Zone2 ad failed to load');
-                console.error('Monetag Zone2 error:', error);
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Monetag Zone2 Ad';
-            }
-        }
-
-        async function watchMonetagZone3Ad() {
-            const watchBtn = document.getElementById('monetag-zone3-ad-btn');
-            watchBtn.disabled = true;
-            watchBtn.textContent = 'Watching...';
-            try {
-                await window[`show_{MONETAG_ZONE3}`]();
-                const response = await Promise.race([
-                    fetch('/api/watch_monetag_zone3/' + userId, { method: 'POST' }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 5000))
-                ]);
-                const data = await response.json();
-                if (data.success) {
-                    tg.showAlert('Monetag Zone3 ad watched! +20 $DOGS');
-                } else if (data.limit_reached) {
-                    tg.showAlert('Monetag Zone3 daily limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
-                } else {
-                    tg.showAlert('Error watching Monetag Zone3 ad');
-                }
-                await loadData();
-            } catch (error) {
-                tg.showAlert('Monetag Zone3 ad failed to load');
-                console.error('Monetag Zone3 error:', error);
-            } finally {
-                watchBtn.disabled = false;
-                watchBtn.textContent = 'Watch Monetag Zone3 Ad';
+                watchBtn.textContent = 'Watch Ad';
             }
         }
 
@@ -1035,10 +931,7 @@ async def mini_app():
         }
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
-        document.getElementById('monetag-ad-btn').addEventListener('click', watchMonetagAd);
-        document.getElementById('monetag-zone1-ad-btn').addEventListener('click', watchMonetagZone1Ad);
-        document.getElementById('monetag-zone2-ad-btn').addEventListener('click', watchMonetagZone2Ad);
-        document.getElementById('monetag-zone3-ad-btn').addEventListener('click', watchMonetagZone3Ad);
+        document.getElementById('ad-btn').addEventListener('click', watchAd);
         loadData();
     </script>
 </body>
