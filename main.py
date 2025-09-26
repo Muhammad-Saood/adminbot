@@ -26,9 +26,9 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-MONETAG_ZONE1 = "9930174"
-MONETAG_ZONE2 = "9930913"
-MONETAG_ZONE3 = "9930950"
+MONETAG_ZONE1 = "9859392"
+MONETAG_ZONE2 = "9859393"
+MONETAG_ZONE3 = "9859394"
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -543,6 +543,11 @@ async def mini_app():
             word-break: break-all;
         }
 
+        .loading {
+            color: #888;
+            font-style: italic;
+        }
+
         @media (max-width: 640px) {
             .page {
                 padding-top: 1.5rem;
@@ -660,20 +665,51 @@ async def mini_app():
             localStorage.setItem(`channel_verified_${userId}`, status);
         }
 
+        function getCachedUserData() {
+            const cachedData = localStorage.getItem(`user_data_${userId}`);
+            return cachedData ? JSON.parse(cachedData) : null;
+        }
+
+        function setCachedUserData(data) {
+            localStorage.setItem(`user_data_${userId}`, JSON.stringify(data));
+        }
+
         async function loadData() {
             try {
-                const isVerified = getCachedVerificationStatus();
+                // Load cached data immediately
+                const cachedData = getCachedUserData();
                 const overlay = document.getElementById('verify-overlay');
-                if (isVerified) {
-                    overlay.style.display = 'none';
+                if (cachedData) {
+                    document.getElementById('balance').textContent = cachedData.points.toFixed(2);
+                    document.getElementById('ad-limit').textContent = cachedData.total_daily_ads_watched + '/28';
+                    document.getElementById('invited-count').textContent = cachedData.invited_friends;
+                    document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
+                    if (cachedData.channel_verified) {
+                        setCachedVerificationStatus(true);
+                        overlay.style.display = 'none';
+                    } else {
+                        setCachedVerificationStatus(false);
+                        overlay.style.display = 'flex';
+                    }
                 } else {
+                    // Show loading state for first-time users
+                    document.getElementById('balance').textContent = 'Loading...';
+                    document.getElementById('balance').classList.add('loading');
+                    document.getElementById('ad-limit').textContent = 'Loading...';
+                    document.getElementById('ad-limit').classList.add('loading');
+                    document.getElementById('invited-count').textContent = '0';
+                    document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
                     overlay.style.display = 'flex';
                 }
 
+                // Fetch fresh data from API
                 const response = await fetch('/api/user/' + userId);
                 const data = await response.json();
+                // Update UI with fresh data
                 document.getElementById('balance').textContent = data.points.toFixed(2);
+                document.getElementById('balance').classList.remove('loading');
                 document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
+                document.getElementById('ad-limit').classList.remove('loading');
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
@@ -684,7 +720,17 @@ async def mini_app():
                     setCachedVerificationStatus(false);
                     overlay.style.display = 'flex';
                 }
+
+                // Cache the fresh data
+                setCachedUserData(data);
             } catch (error) {
+                // If API fails, keep cached data or show default
+                if (!getCachedUserData()) {
+                    document.getElementById('balance').textContent = '0.00';
+                    document.getElementById('balance').classList.remove('loading');
+                    document.getElementById('ad-limit').textContent = '0/28';
+                    document.getElementById('ad-limit').classList.remove('loading');
+                }
                 tg.showAlert('Failed to load data');
             }
         }
