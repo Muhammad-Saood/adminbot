@@ -26,9 +26,9 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@qaidyno804")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
-MONETAG_ZONE1 = os.getenv("MONETAG_ZONE1", "9859392")
-MONETAG_ZONE2 = os.getenv("MONETAG_ZONE2", "9859393")
-MONETAG_ZONE3 = os.getenv("MONETAG_ZONE3", "9859394")
+MONETAG_ZONE1 = "9859392"
+MONETAG_ZONE2 = "9859393"
+MONETAG_ZONE3 = "9859394"
 USERS_FILE = "/tmp/users.json"
 
 # Logging
@@ -324,6 +324,12 @@ async def mini_app():
             justify-content: space-between;
             margin-bottom: 20px;
             width: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            padding: 10px;
+            background: white;
+            z-index: 10;
         }
 
         .id-card, .balance-card {
