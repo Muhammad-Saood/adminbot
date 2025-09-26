@@ -83,7 +83,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "monetag_zone3_daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
-            "binance_id": None,
+            "easypaisa_jazzcash": None,
             "invited_by": invited_by,
             "created_at": dt.datetime.now().isoformat(),
             "channel_verified": False
@@ -135,16 +135,16 @@ async def add_invited_friend(user_id: int):
     else:
         logger.error(f"Cannot add friend: user {user_id} not found")
 
-async def withdraw_points(user_id: int, amount: float, binance_id: str) -> bool:
+async def withdraw_points(user_id: int, amount: float, easypaisa_jazzcash: str) -> bool:
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users and users[user_id_str]["points"] >= amount:
         users[user_id_str]["points"] -= amount
-        users[user_id_str]["binance_id"] = binance_id
+        users[user_id_str]["easypaisa_jazzcash"] = easypaisa_jazzcash
         await write_json(users)
         await application.bot.send_message(
             chat_id=ADMIN_CHANNEL_ID,
-            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} RS\nBinance ID: {binance_id}"
+            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} RS\nEasypaisa/Jazzcash: {easypaisa_jazzcash}"
         )
         return True
     return False
@@ -255,10 +255,10 @@ async def watch_ad(user_id: int):
 async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
-    binance_id = data["binance_id"]
-    if amount < 2000 or not binance_id:
-        return {"success": False, "message": "Minimum 2000 RS and Binance ID required"}
-    if await withdraw_points(user_id, amount, binance_id):
+    easypaisa_jazzcash = data["easypaisa_jazzcash"]
+    if amount < 150 or not easypaisa_jazzcash:
+        return {"success": False, "message": "Minimum 150 RS and Easypaisa/Jazzcash required"}
+    if await withdraw_points(user_id, amount, easypaisa_jazzcash):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
@@ -337,6 +337,12 @@ async def mini_app():
 
         .header h2 {
             font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.75rem;
+        }
+
+        .header p {
+            font-size: 1.125rem;
             font-weight: bold;
             margin-bottom: 0.75rem;
         }
@@ -572,14 +578,14 @@ async def mini_app():
     </div>
     <div id="tasks" class="page active">
         <div class="header">
-            <h2>Tasks</h2>
             <div class="user-info">
                 <div class="id-card">ID: <span id="user-id"></span></div>
                 <div class="balance-card">Balance: <span id="balance" class="highlight">0.00</span> RS</div>
             </div>
+            <h2>Tasks</h2>
+            <p>watch ad to earn rs</p>
         </div>
         <div class="card">
-            <h3>Watch Ad to Earn RS</h3>
             <div class="ad-info">
                 <div class="small-card">1 AD = 20 RS</div>
                 <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
@@ -602,11 +608,11 @@ async def mini_app():
     <div id="withdraw" class="page">
         <div class="header">
             <h2>Withdraw</h2>
-            <p class="highlight">Minimum 2000 RS</p>
+            <p class="highlight">Minimum 150 RS</p>
         </div>
         <div class="card">
-            <input type="number" id="amount" placeholder="Enter amount (min 2000)" class="input">
-            <input type="text" id="binance-id" placeholder="Enter Binance ID" class="input">
+            <input type="number" id="amount" placeholder="Enter amount (min 150)" class="input">
+            <input type="text" id="easypaisa-jazzcash" placeholder="Enter Easypaisa/Jazzcash" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
         </div>
     </div>
@@ -754,21 +760,21 @@ async def mini_app():
 
         async function withdraw() {
             const amount = parseFloat(document.getElementById('amount').value);
-            const binanceId = document.getElementById('binance-id').value;
-            if (amount < 2000 || !binanceId) {
-                tg.showAlert('Minimum 2000 RS and Binance ID required!');
+            const easypaisaJazzcash = document.getElementById('easypaisa-jazzcash').value;
+            if (amount < 150 || !easypaisaJazzcash) {
+                tg.showAlert('Minimum 150 RS and Easypaisa/Jazzcash required!');
                 return;
             }
             const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, binance_id: binanceId})
+                body: JSON.stringify({amount, easypaisa_jazzcash: easypaisaJazzcash})
             });
             const data = await response.json();
             if (data.success) {
                 tg.showAlert('Withdraw successful! Credited within 24 hours.');
                 document.getElementById('amount').value = '';
-                document.getElementById('binance-id').value = '';
+                document.getElementById('easypaisa-jazzcash').value = '';
                 await loadData();
             } else {
                 tg.showAlert(data.message || 'Withdraw failed');
