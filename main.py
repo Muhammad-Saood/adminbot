@@ -584,8 +584,8 @@ async def mini_app():
 <body>
     <div id="verify-overlay" class="verify-overlay">
         <div class="verify-box">
-            <h2>Join Our Channel</h2>
-            <p>You must join our Telegram channel to start earning!</p>
+            <h2>📢 Join Announcemens 📢</h2>
+            <p>Join Click to Earn Official Announcements Channel and verify your account to start earning!</p>
             <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
             <button id="verify-btn" class="btn-primary">Verify</button>
         </div>
@@ -596,11 +596,11 @@ async def mini_app():
                 <div class="id-card">ID: <span id="user-id"></span></div>
                 <div class="balance-card">Balance: <span id="balance" class="highlight">0.00</span> RS</div>
             </div>
-            <h2>Tasks</h2>
-            <p>watch ad to earn rs</p>
+            <h2>📝 Task 📝</h2>
+            <p>💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings 💰</p>
         </div>
         <div class="card">
-            <h2>Watch AD</h2>
+            <h2>🚀 Watch Ads 🚀</h2>
             <div class="ad-info">
                 <div class="small-card">1 AD = 0.5 RS</div>
                 <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
@@ -610,8 +610,8 @@ async def mini_app():
     </div>
     <div id="invite" class="page">
         <div class="header">
-            <h2>Invite Friends</h2>
-            <p>Invite friends by using the link given below and get 7% bonus of friends earning</p>
+            <h2>👥 Invite Friends 👥</h2>
+            <p>Invite friends by using the link given below and get 7% bonus of friend's earning</p>
         </div>
         <div class="card">
             <p>Your Invite Link:</p>
@@ -622,11 +622,11 @@ async def mini_app():
     </div>
     <div id="withdraw" class="page">
         <div class="header">
-            <h2>Withdraw</h2>
-            <p class="highlight">Minimum 150 RS</p>
+            <h2>💸 Withdraw 💸</h2>
+            <p class="highlight">Minimum withdrawal amount is 150 RS</p>
         </div>
         <div class="card">
-            <input type="number" id="amount" placeholder="Enter amount (min 150)" class="input">
+            <input type="number" id="amount" placeholder="Enter amount (min 150 RS)" class="input">
             <input type="text" id="easypaisa-jazzcash" placeholder="Enter Easypaisa/Jazzcash" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
         </div>
@@ -832,7 +832,7 @@ async def mini_app():
             const amount = parseFloat(document.getElementById('amount').value);
             const easypaisaJazzcash = document.getElementById('easypaisa-jazzcash').value;
             if (amount < 150 || !easypaisaJazzcash) {
-                tg.showAlert('Minimum 150 RS and Easypaisa/Jazzcash required!');
+                tg.showAlert('Minimum 150 RS and Easypaisa/Jazzcash number required!');
                 return;
             }
             const response = await fetch('/api/withdraw/' + userId, {
@@ -906,9 +906,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_new and invited_by and invited_by != update.effective_user.id:
         await add_invited_friend(invited_by)
-        welcome_text = "Welcome! Referred by a friend. Launch Mini App!"
+        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Easypaisa/Jazzcash 🚀 Open Mini App , and start your earning!"
     else:
-        welcome_text = "Welcome back! Launch Mini App!"
+        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Easypaisa/Jazzcash 🚀 Open Mini App, and start your earning!"
     
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
