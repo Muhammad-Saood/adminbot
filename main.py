@@ -671,7 +671,16 @@ async def mini_app():
         }
 
         function setCachedUserData(data) {
-            localStorage.setItem(`user_data_${userId}`, JSON.stringify(data));
+            localStorage.setItem(`user_data_${userId}`, JSON.stringify({
+                points: data.points,
+                total_daily_ads_watched: data.total_daily_ads_watched,
+                monetag_daily_ads_watched: data.monetag_daily_ads_watched,
+                monetag_zone1_daily_ads_watched: data.monetag_zone1_daily_ads_watched,
+                monetag_zone2_daily_ads_watched: data.monetag_zone2_daily_ads_watched,
+                monetag_zone3_daily_ads_watched: data.monetag_zone3_daily_ads_watched,
+                invited_friends: data.invited_friends,
+                channel_verified: data.channel_verified
+            }));
         }
 
         async function loadData() {
@@ -692,14 +701,16 @@ async def mini_app():
                         overlay.style.display = 'flex';
                     }
                 } else {
-                    // Show loading state for first-time users
-                    document.getElementById('balance').textContent = 'Loading...';
-                    document.getElementById('balance').classList.add('loading');
-                    document.getElementById('ad-limit').textContent = 'Loading...';
-                    document.getElementById('ad-limit').classList.add('loading');
+                    // Show default state for first-time users
+                    document.getElementById('balance').textContent = '0.00';
+                    document.getElementById('ad-limit').textContent = '0/28';
                     document.getElementById('invited-count').textContent = '0';
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
                     overlay.style.display = 'flex';
+                    // Add loading indicators
+                    document.getElementById('balance').classList.add('loading');
+                    document.getElementById('ad-limit').classList.add('loading');
+                    document.getElementById('invited-count').classList.add('loading');
                 }
 
                 // Fetch fresh data from API
@@ -711,6 +722,7 @@ async def mini_app():
                 document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
                 document.getElementById('ad-limit').classList.remove('loading');
                 document.getElementById('invited-count').textContent = data.invited_friends;
+                document.getElementById('invited-count').classList.remove('loading');
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
                 if (data.channel_verified) {
@@ -727,9 +739,11 @@ async def mini_app():
                 // If API fails, keep cached data or show default
                 if (!getCachedUserData()) {
                     document.getElementById('balance').textContent = '0.00';
-                    document.getElementById('balance').classList.remove('loading');
                     document.getElementById('ad-limit').textContent = '0/28';
+                    document.getElementById('invited-count').textContent = '0';
+                    document.getElementById('balance').classList.remove('loading');
                     document.getElementById('ad-limit').classList.remove('loading');
+                    document.getElementById('invited-count').classList.remove('loading');
                 }
                 tg.showAlert('Failed to load data');
             }
