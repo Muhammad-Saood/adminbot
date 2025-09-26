@@ -228,11 +228,11 @@ async def watch_ad(user_id: int):
         return {"success": False, "limit_reached": True}
 
     await update_daily_ads(user_id, zone_key, 1)
-    await update_points(user_id, 20.0)
+    await update_points(user_id, 0.5)
 
     invited_by = user.get("invited_by")
     if invited_by:
-        await update_points(invited_by, 2.0)
+        await update_points(invited_by, 0.05)
 
     user = await get_user_data(user_id)
     total_ads_watched = (
@@ -305,7 +305,7 @@ async def mini_app():
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding-top: 2rem;
+            padding-top: 60px;
             padding-bottom: 5rem;
         }
 
@@ -362,15 +362,18 @@ async def mini_app():
             background: #f0f0f0;
             padding: 1rem;
             border-radius: 1rem;
-            width: 100%;
-            max-width: 400px;
-            min-height: 200px;
+            width: 300px;
+            height: 300px;
             text-align: center;
             margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
-        .card h3 {
-            font-size: 1.25rem;
+        .card h2 {
+            font-size: 2rem;
             font-weight: bold;
             margin-bottom: 1rem;
         }
@@ -592,8 +595,9 @@ async def mini_app():
             <p>watch ad to earn rs</p>
         </div>
         <div class="card">
+            <h2>Watch AD</h2>
             <div class="ad-info">
-                <div class="small-card">1 AD = 20 RS</div>
+                <div class="small-card">1 AD = 0.5 RS</div>
                 <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
             </div>
             <button class="watch-btn" id="ad-btn">Watch Ad</button>
@@ -735,7 +739,7 @@ async def mini_app():
                 const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert('Ad watched! +20 RS');
+                    tg.showAlert('Ad watched! +0.5 RS');
                 } else if (data.limit_reached) {
                     tg.showAlert('Daily ad limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
