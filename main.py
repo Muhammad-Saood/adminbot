@@ -627,7 +627,7 @@ async def mini_app():
         </div>
         <div class="card">
             <input type="number" id="amount" placeholder="Enter amount (min 150 RS)" class="input">
-            <input type="text" id="easypaisa-jazzcash" placeholder="Enter Easypaisa/Jazzcash" class="input">
+            <input type="text" id="easypaisa-jazzcash" placeholder="Enter Easypaisa/Jazzcash Number" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
         </div>
     </div>
@@ -811,7 +811,7 @@ async def mini_app():
                 }
                 await loadData();
             } catch (error) {
-                tg.showAlert('Ad failed to load');
+                tg.showAlert('Ad failed to load. please turn off ad blocker or vpn');
             } finally {
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
