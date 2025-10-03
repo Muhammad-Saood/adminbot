@@ -86,7 +86,8 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "easypaisa_jazzcash": None,
             "invited_by": invited_by,
             "created_at": dt.datetime.now().isoformat(),
-            "channel_verified": False
+            "channel_verified": False,
+            "last_ad_start_time": None
         }
         await write_json(users)
     return users[user_id_str], is_new
@@ -194,12 +195,6 @@ async def get_user(user_id: int):
 
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int, request: Request):
-    try:
-        data = await request.json()
-        watch_duration = float(data.get("watch_duration", 0))
-    except Exception:
-        return {"success": False, "message": "Invalid request data"}
-
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
@@ -215,7 +210,10 @@ async def watch_ad(user_id: int, request: Request):
     if user["last_ad_date"] == today and total_ads_watched >= 28:
         return {"success": False, "limit_reached": True}
 
-    if watch_duration < 17:
+    data = await request.json()
+    ad_completed = data.get("ad_completed", False)
+
+    if not ad_completed:
         return {"success": False, "message": "Ad not completely watched or not opened ad website"}
 
     # Determine which zone to use
@@ -557,17 +555,6 @@ async def mini_app():
             font-style: italic;
         }
 
-        .ad-message {
-            color: #ef4444;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-            display: none;
-        }
-
-        .ad-message.show {
-            display: block;
-        }
-
         @media (max-width: 640px) {
             .page {
                 padding-top: 1.5rem;
@@ -626,7 +613,6 @@ async def mini_app():
                 <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
             </div>
             <button class="watch-btn" id="ad-btn">Watch Ad</button>
-            <p id="ad-message" class="ad-message"></p>
         </div>
     </div>
     <div id="invite" class="page">
@@ -679,9 +665,7 @@ async def mini_app():
         const MONETAG_ZONE3 = "{MONETAG_ZONE3}";
 
         let adStartTime = null;
-        let watchDuration = 0;
-        let isAdActive = false;
-        let timerInterval = null;
+        let adCompleted = false;
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -709,19 +693,9 @@ async def mini_app():
             }));
         }
 
-        function showAdMessage(message, isError = true) {
-            const adMessage = document.getElementById('ad-message');
-            adMessage.textContent = message;
-            adMessage.style.color = isError ? '#ef4444' : '#10b981';
-            adMessage.classList.add('show');
-            setTimeout(() => {
-                adMessage.classList.remove('show');
-                adMessage.textContent = '';
-            }, 5000);
-        }
-
         async function loadData() {
             try {
+                // Load cached data immediately
                 const cachedData = getCachedUserData();
                 const overlay = document.getElementById('verify-overlay');
                 if (cachedData) {
@@ -737,18 +711,22 @@ async def mini_app():
                         overlay.style.display = 'flex';
                     }
                 } else {
+                    // Show default state for first-time users
                     document.getElementById('balance').textContent = '0.00';
                     document.getElementById('ad-limit').textContent = '0/28';
                     document.getElementById('invited-count').textContent = '0';
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
                     overlay.style.display = 'flex';
+                    // Add loading indicators
                     document.getElementById('balance').classList.add('loading');
                     document.getElementById('ad-limit').classList.add('loading');
                     document.getElementById('invited-count').classList.add('loading');
                 }
 
+                // Fetch fresh data from API
                 const response = await fetch('/api/user/' + userId);
                 const data = await response.json();
+                // Update UI with fresh data
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('balance').classList.remove('loading');
                 document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
@@ -765,8 +743,10 @@ async def mini_app():
                     overlay.style.display = 'flex';
                 }
 
+                // Cache the fresh data
                 setCachedUserData(data);
             } catch (error) {
+                // If API fails, keep cached data or show default
                 if (!getCachedUserData()) {
                     document.getElementById('balance').textContent = '0.00';
                     document.getElementById('ad-limit').textContent = '0/28';
@@ -820,93 +800,51 @@ async def mini_app():
                 } else if (userData.monetag_zone3_daily_ads_watched < 7) {
                     zone = MONETAG_ZONE3;
                 } else {
-                    showAdMessage('Daily ad limit reached!');
+                    tg.showAlert('Daily ad limit reached!');
                     await loadData();
                     watchBtn.disabled = false;
                     watchBtn.textContent = 'Watch Ad';
                     return;
                 }
 
-                isAdActive = true;
-                adStartTime = performance.now();
-                let lastActiveTime = adStartTime;
+                adStartTime = Date.now();
+                adCompleted = false;
 
-                const updateTimer = () => {
-                    if (isAdActive) {
-                        watchDuration = (performance.now() - adStartTime) / 1000;
-                    }
-                };
+                // Start a timer to check ad completion
+                setTimeout(() => {
+                    adCompleted = true;
+                }, 17000); // 17 seconds
 
-                timerInterval = setInterval(updateTimer, 100);
+                await window[`show_${zone}`]();
 
-                const handleVisibilityChange = () => {
-                    if (document.hidden) {
-                        clearInterval(timerInterval);
-                    } else if (isAdActive) {
-                        timerInterval = setInterval(updateTimer, 100);
-                    }
-                };
-
-                const handleFocus = () => {
-                    if (isAdActive && !document.hidden) {
-                        timerInterval = setInterval(updateTimer, 100);
-                    }
-                };
-
-                const handleBlur = () => {
-                    if (isAdActive) {
-                        clearInterval(timerInterval);
-                    }
-                };
-
-                document.addEventListener('visibilitychange', handleVisibilityChange);
-                window.addEventListener('focus', handleFocus);
-                window.addEventListener('blur', handleBlur);
-
-                try {
-                    await window[`show_${zone}`]();
-                } catch (adError) {
-                    throw new Error('Ad failed to load');
-                } finally {
-                    isAdActive = false;
-                    clearInterval(timerInterval);
-                    document.removeEventListener('visibilitychange', handleVisibilityChange);
-                    window.removeEventListener('focus', handleFocus);
-                    window.removeEventListener('blur', handleBlur);
-                }
-
+                // Check if ad was watched for at least 17 seconds
                 const response = await fetch('/api/watch_ad/' + userId, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ watch_duration: watchDuration })
+                    body: JSON.stringify({ ad_completed: adCompleted })
                 });
                 const data = await response.json();
                 if (data.success) {
-                    showAdMessage('Ad watched! +0.5 RS', false);
+                    tg.showAlert('Ad watched! +0.5 RS');
                 } else if (data.limit_reached) {
-                    showAdMessage('Daily ad limit reached!');
+                    tg.showAlert('Daily ad limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
-                    showAdMessage('Please verify channel membership first!');
+                    tg.showAlert('Please verify channel membership first!');
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
                 } else if (data.message === 'Ad not completely watched or not opened ad website') {
-                    showAdMessage('Ad not completely watched or not opened ad website');
+                    tg.showAlert('Ad not completely watched or not opened ad website');
                 } else {
-                    showAdMessage('Error watching ad');
+                    tg.showAlert('Error watching ad');
                 }
                 await loadData();
             } catch (error) {
-                showAdMessage('Ad failed to load. Please turn off ad blocker or VPN');
+                tg.showAlert('Ad failed to load. Please turn off ad blocker or VPN');
             } finally {
+                adStartTime = null;
+                adCompleted = false;
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
-                isAdActive = false;
-                adStartTime = null;
-                watchDuration = 0;
-                if (timerInterval) {
-                    clearInterval(timerInterval);
-                    timerInterval = null;
-                }
             }
         }
 
@@ -952,6 +890,14 @@ async def mini_app():
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelector(`.nav-btn[data-page="${page}"]`).classList.add('active');
+
+            // Check if ad was not watched for 17 seconds
+            if (adStartTime && !adCompleted && page === 'tasks') {
+                const timeElapsed = (Date.now() - adStartTime) / 1000;
+                if (timeElapsed < 17) {
+                    adCompleted = false;
+                }
+            }
         }
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
