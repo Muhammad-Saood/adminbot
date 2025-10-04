@@ -69,6 +69,23 @@ async def init_json():
         logger.error(f"JSON init failed: {e}")
         raise
 
+async def reset_daily_counters_if_needed(user_id: int) -> bool:
+    users = await read_json()
+    user_id_str = str(user_id)
+    if user_id_str not in users:
+        return False
+    user_data = users[user_id_str]
+    today = dt.datetime.now().date().isoformat()
+    if user_data.get("last_ad_date") != today:
+        user_data["monetag_daily_ads_watched"] = 0
+        user_data["monetag_zone1_daily_ads_watched"] = 0
+        user_data["monetag_zone2_daily_ads_watched"] = 0
+        user_data["monetag_zone3_daily_ads_watched"] = 0
+        user_data["last_ad_date"] = today
+        await write_json(users)
+        return True
+    return False
+
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
     users = await read_json()
     user_id_str = str(user_id)
@@ -93,6 +110,7 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
     return users[user_id_str], is_new
 
 async def get_user_data(user_id: int) -> dict:
+    await reset_daily_counters_if_needed(user_id)
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
