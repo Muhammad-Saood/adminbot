@@ -733,7 +733,8 @@ async def mini_app():
                     .storeAddress(Address.parse(userAddress))
                     .storeBit(0)
                     .storeCoins(0)
-                    .storeBit(0)
+                    .storeBit(1)
+                    .storeRef(beginCell().endCell())
                     .endCell()
                     .toB64();
 
