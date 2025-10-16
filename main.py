@@ -10,7 +10,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 import uvicorn
 import requests
 from dotenv import load_dotenv
@@ -26,9 +26,10 @@ ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@ClicktoEarnAnnouncements")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
+MONETAG_ZONE1 = "9930174"
+MONETAG_ZONE2 = "9930913"
+MONETAG_ZONE3 = "9930950"
 USERS_FILE = "/tmp/users.json"
-OWNER_WALLET = os.getenv("OWNER_WALLET", "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c")  # Replace with actual owner wallet
-USDT_CONTRACT = "EQCxE6mUtQJKFnGfaTvjNE2WUmnI9K8WLcpMMM-o3Q5HHB0o"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -68,20 +69,6 @@ async def init_json():
         logger.error(f"JSON init failed: {e}")
         raise
 
-async def reset_daily_counters_if_needed(user_id: int) -> bool:
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str not in users:
-        return False
-    user_data = users[user_id_str]
-    today = dt.datetime.now().date().isoformat()
-    if user_data.get("last_ad_date") != today:
-        user_data["daily_ads_watched"] = 0
-        user_data["last_ad_date"] = today
-        await write_json(users)
-        return True
-    return False
-
 async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> Tuple[dict, bool]:
     users = await read_json()
     user_id_str = str(user_id)
@@ -90,22 +77,21 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
         users[user_id_str] = {
             "user_id": user_id,
             "points": 0.0,
-            "daily_ads_watched": 0,
+            "monetag_daily_ads_watched": 0,
+            "monetag_zone1_daily_ads_watched": 0,
+            "monetag_zone2_daily_ads_watched": 0,
+            "monetag_zone3_daily_ads_watched": 0,
             "last_ad_date": None,
             "invited_friends": 0,
-            "withdraw_wallet": None,
+            "easypaisa_jazzcash": None,
             "invited_by": invited_by,
             "created_at": dt.datetime.now().isoformat(),
-            "channel_verified": False,
-            "last_ad_start_time": None,
-            "connected_wallet": None,
-            "plan_purchase_date": None
+            "channel_verified": False
         }
         await write_json(users)
     return users[user_id_str], is_new
 
 async def get_user_data(user_id: int) -> dict:
-    await reset_daily_counters_if_needed(user_id)
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
@@ -121,20 +107,24 @@ async def update_points(user_id: int, points: float):
     else:
         logger.error(f"Cannot update points: user {user_id} not found")
 
-async def update_daily_ads(user_id: int, ads_watched: int):
+async def update_daily_ads(user_id: int, platform: str, ads_watched: int):
     today = dt.datetime.now().date().isoformat()
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users:
         user_data = users[user_id_str]
         if user_data["last_ad_date"] == today:
-            user_data["daily_ads_watched"] += ads_watched
+            user_data[f"{platform}_daily_ads_watched"] += ads_watched
         else:
-            user_data["daily_ads_watched"] = ads_watched
+            user_data["monetag_daily_ads_watched"] = 0
+            user_data["monetag_zone1_daily_ads_watched"] = 0
+            user_data["monetag_zone2_daily_ads_watched"] = 0
+            user_data["monetag_zone3_daily_ads_watched"] = 0
+            user_data[f"{platform}_daily_ads_watched"] = ads_watched
             user_data["last_ad_date"] = today
         await write_json(users)
     else:
-        logger.error(f"Cannot update ads: user {user_id} not found")
+        logger.error(f"Cannot update {platform} ads: user {user_id} not found")
 
 async def add_invited_friend(user_id: int):
     users = await read_json()
@@ -145,16 +135,16 @@ async def add_invited_friend(user_id: int):
     else:
         logger.error(f"Cannot add friend: user {user_id} not found")
 
-async def withdraw_points(user_id: int, amount: float, withdraw_wallet: str) -> bool:
+async def withdraw_points(user_id: int, amount: float, easypaisa_jazzcash: str) -> bool:
     users = await read_json()
     user_id_str = str(user_id)
     if user_id_str in users and users[user_id_str]["points"] >= amount:
         users[user_id_str]["points"] -= amount
-        users[user_id_str]["withdraw_wallet"] = withdraw_wallet
+        users[user_id_str]["easypaisa_jazzcash"] = easypaisa_jazzcash
         await write_json(users)
         await application.bot.send_message(
             chat_id=ADMIN_CHANNEL_ID,
-            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} USDT\nWallet: {withdraw_wallet}"
+            text=f"Withdrawal Request:\nUser ID: {user_id}\nAmount: {amount} RS\nEasypaisa/Jazzcash: {easypaisa_jazzcash}"
         )
         return True
     return False
@@ -181,73 +171,94 @@ async def verify_channel_membership(user_id: int) -> bool:
         logger.error(f"Error verifying channel membership for {user_id}: {e}")
         return False
 
-def is_plan_active(user: dict) -> bool:
-    if not user.get("plan_purchase_date"):
-        return False
-    purchase_date = dt.datetime.fromisoformat(user["plan_purchase_date"])
-    return dt.datetime.now() < purchase_date + dt.timedelta(days=7)
-
 # API endpoints
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: int):
     user = await get_user_data(user_id)
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
     return {
         "points": user["points"],
-        "total_daily_ads_watched": user["daily_ads_watched"],
-        "daily_ads_watched": user["daily_ads_watched"],
+        "total_daily_ads_watched": total_ads_watched,
+        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
+        "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"],
+        "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
+        "monetag_zone3_daily_ads_watched": user["monetag_zone3_daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "channel_verified": user["channel_verified"],
-        "connected_wallet": user["connected_wallet"],
-        "plan_purchase_date": user["plan_purchase_date"],
-        "plan_active": is_plan_active(user)
+        "channel_verified": user["channel_verified"]
     }
 
 @app.post("/api/watch_ad/{user_id}")
-async def watch_ad(user_id: int, request: Request):
+async def watch_ad(user_id: int):
     user = await get_user_data(user_id)
     if not user["channel_verified"]:
         return {"success": False, "message": "Channel membership not verified"}
-    if not is_plan_active(user):
-        return {"success": False, "message": "Please purchase plan first"}
 
     today = dt.datetime.now().date().isoformat()
-    total_ads_watched = user["daily_ads_watched"]
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
 
-    if user["last_ad_date"] == today and total_ads_watched >= 10:
+    if user["last_ad_date"] == today and total_ads_watched >= 28:
         return {"success": False, "limit_reached": True}
 
-    data = await request.json()
-    ad_completed = data.get("ad_completed", False)
+    # Determine which zone to use
+    zone = None
+    zone_key = None
+    if user["monetag_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE
+        zone_key = "monetag"
+    elif user["monetag_zone1_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE1
+        zone_key = "monetag_zone1"
+    elif user["monetag_zone2_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE2
+        zone_key = "monetag_zone2"
+    elif user["monetag_zone3_daily_ads_watched"] < 7:
+        zone = MONETAG_ZONE3
+        zone_key = "monetag_zone3"
+    else:
+        return {"success": False, "limit_reached": True}
 
-    if not ad_completed:
-        return {"success": False, "message": "Ad not completely watched or not opened ad website"}
-
-    # Use single zone
-    zone = MONETAG_ZONE
-
-    await update_daily_ads(user_id, 1)
-    await update_points(user_id, 0.1)
+    await update_daily_ads(user_id, zone_key, 1)
+    await update_points(user_id, 0.5)
 
     invited_by = user.get("invited_by")
     if invited_by:
-        await update_points(invited_by, 0.007)
+        await update_points(invited_by, 0.035)
 
     user = await get_user_data(user_id)
+    total_ads_watched = (
+        user["monetag_daily_ads_watched"] +
+        user["monetag_zone1_daily_ads_watched"] +
+        user["monetag_zone2_daily_ads_watched"] +
+        user["monetag_zone3_daily_ads_watched"]
+    )
     return {
         "success": True,
         "points": user["points"],
-        "total_daily_ads_watched": user["daily_ads_watched"],
-        "daily_ads_watched": user["daily_ads_watched"]
+        "total_daily_ads_watched": total_ads_watched,
+        "monetag_daily_ads_watched": user["monetag_daily_ads_watched"],
+        "monetag_zone1_daily_ads_watched": user["monetag_zone1_daily_ads_watched"],
+        "monetag_zone2_daily_ads_watched": user["monetag_zone2_daily_ads_watched"],
+        "monetag_zone3_daily_ads_watched": user["monetag_zone3_daily_ads_watched"]
     }
 
 @app.post("/api/withdraw/{user_id}")
 async def withdraw(user_id: int, request: Request):
     data = await request.json()
     amount = float(data["amount"])
-    withdraw_wallet = data["withdraw_wallet"]
-    if amount < 1 or not withdraw_wallet:
-        return {"success": False, "message": "Minimum 1 USDT and Wallet address required"}
-    if await withdraw_points(user_id, amount, withdraw_wallet):
+    easypaisa_jazzcash = data["easypaisa_jazzcash"]
+    if amount < 150 or not easypaisa_jazzcash:
+        return {"success": False, "message": "Minimum 150 RS and Easypaisa/Jazzcash required"}
+    if await withdraw_points(user_id, amount, easypaisa_jazzcash):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
 
@@ -256,50 +267,6 @@ async def verify_channel(user_id: int):
     if await verify_channel_membership(user_id):
         return {"success": True, "message": "Channel membership verified"}
     return {"success": False, "message": "You must join the channel first"}
-
-@app.post("/api/set_wallet/{user_id}")
-async def set_wallet(user_id: int, request: Request):
-    data = await request.json()
-    wallet = data.get("wallet")
-    if not wallet:
-        return {"success": False}
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["connected_wallet"] = wallet
-        await write_json(users)
-        return {"success": True}
-    return {"success": False}
-
-@app.post("/api/disconnect_wallet/{user_id}")
-async def disconnect_wallet(user_id: int):
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["connected_wallet"] = None
-        await write_json(users)
-        return {"success": True}
-    return {"success": False}
-
-@app.post("/api/purchase_plan/{user_id}")
-async def purchase_plan(user_id: int):
-    users = await read_json()
-    user_id_str = str(user_id)
-    if user_id_str in users:
-        users[user_id_str]["plan_purchase_date"] = dt.datetime.now().isoformat()
-        await write_json(users)
-        return {"success": True}
-    return {"success": False}
-
-@app.get("/tonconnect-manifest.json")
-async def tonconnect_manifest():
-    return JSONResponse({
-        "url": f"{BASE_URL}/app",
-        "name": "Click to Earn",
-        "iconUrl": "https://telegram.org/img/t_logo.png",
-        "termsOfUseUrl": None,
-        "privacyPolicyUrl": None
-    })
 
 # Mini App HTML
 @app.get("/app")
@@ -313,8 +280,9 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script src="https://unpkg.com/@ton/ton@13/dist/ton.min.js"></script>
-    <script src="https://unpkg.com/tonconnect-ui@latest/dist/tonconnect-ui.min.js"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE1}" data-sdk="show_{MONETAG_ZONE1}"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE2}" data-sdk="show_{MONETAG_ZONE2}"></script>
+    <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE3}" data-sdk="show_{MONETAG_ZONE3}"></script>
     <style>
         * {
             margin: 0;
@@ -616,7 +584,7 @@ async def mini_app():
 <body>
     <div id="verify-overlay" class="verify-overlay">
         <div class="verify-box">
-            <h2>📢 Join Announcements 📢</h2>
+            <h2>📢 Join Announcemens 📢</h2>
             <p>Join Click to Earn Official Announcements Channel and verify your account to start earning!</p>
             <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
             <button id="verify-btn" class="btn-primary">Verify</button>
@@ -626,19 +594,18 @@ async def mini_app():
         <div class="header">
             <div class="user-info">
                 <div class="id-card">ID: <span id="user-id"></span></div>
-                <div class="balance-card">Balance: <span id="balance" class="highlight">0.00</span> USDT</div>
+                <div class="balance-card">Balance: <span id="balance" class="highlight">0.00</span> RS</div>
             </div>
             <h2>📝 Task 📝</h2>
-            <p>💰 Start earning instantly – get 0.1 USDT for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings 💰</p>
+            <p>💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings 💰</p>
         </div>
         <div class="card">
             <h2>🚀 Watch Ads 🚀</h2>
             <div class="ad-info">
-                <div class="small-card">1 AD = 0.1 USDT</div>
-                <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/10</span></div>
+                <div class="small-card">1 AD = 0.5 RS</div>
+                <div class="small-card">Daily Limit: <span id="ad-limit" class="highlight">0/28</span></div>
             </div>
             <button class="watch-btn" id="ad-btn">Watch Ad</button>
-            <button class="btn-primary" id="upgrade-plan">Upgrade Plan</button>
         </div>
     </div>
     <div id="invite" class="page">
@@ -656,12 +623,11 @@ async def mini_app():
     <div id="withdraw" class="page">
         <div class="header">
             <h2>💸 Withdraw 💸</h2>
-            <p class="highlight">Minimum withdrawal amount is 1 USDT</p>
+            <p class="highlight">Minimum withdrawal amount is 150 RS</p>
         </div>
-        <div id="wallet-connect-section" style="width:100%; margin-bottom:1rem;"></div>
         <div class="card">
-            <input type="number" id="amount" placeholder="Enter amount (min 1 USDT)" class="input">
-            <input type="text" id="withdraw-wallet" placeholder="Enter Wallet Address" class="input">
+            <input type="number" id="amount" placeholder="Enter amount (min 150 RS)" class="input">
+            <input type="text" id="easypaisa-jazzcash" placeholder="Enter Easypaisa/Jazzcash Number" class="input">
             <button class="withdraw-btn" onclick="withdraw()">Withdraw</button>
         </div>
     </div>
@@ -687,30 +653,9 @@ async def mini_app():
         document.getElementById('user-id').textContent = userId;
 
         const MONETAG_ZONE = "{MONETAG_ZONE}";
-        const OWNER_WALLET = "{OWNER_WALLET}";
-        const USDT_CONTRACT = "{USDT_CONTRACT}";
-
-        let adStartTime = null;
-        let adCompleted = false;
-
-        const tonConnectUI = new TONConnectUI({
-            manifestUrl: `${window.location.origin}/tonconnect-manifest.json`
-        });
-
-        tonConnectUI.onStatusChange(async (wallet) => {
-            if (wallet) {
-                const address = ton.Address.parseRaw(wallet.account.address).toString({ urlSafe: true, bounceable: true });
-                await fetch(`/api/set_wallet/${userId}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ wallet: address })
-                });
-                updateWalletUI();
-            } else {
-                await fetch(`/api/disconnect_wallet/${userId}`, { method: 'POST' });
-                updateWalletUI();
-            }
-        });
+        const MONETAG_ZONE1 = "{MONETAG_ZONE1}";
+        const MONETAG_ZONE2 = "{MONETAG_ZONE2}";
+        const MONETAG_ZONE3 = "{MONETAG_ZONE3}";
 
         function getCachedVerificationStatus() {
             return localStorage.getItem(`channel_verified_${userId}`) === 'true';
@@ -729,12 +674,12 @@ async def mini_app():
             localStorage.setItem(`user_data_${userId}`, JSON.stringify({
                 points: data.points,
                 total_daily_ads_watched: data.total_daily_ads_watched,
-                daily_ads_watched: data.daily_ads_watched,
+                monetag_daily_ads_watched: data.monetag_daily_ads_watched,
+                monetag_zone1_daily_ads_watched: data.monetag_zone1_daily_ads_watched,
+                monetag_zone2_daily_ads_watched: data.monetag_zone2_daily_ads_watched,
+                monetag_zone3_daily_ads_watched: data.monetag_zone3_daily_ads_watched,
                 invited_friends: data.invited_friends,
-                channel_verified: data.channel_verified,
-                connected_wallet: data.connected_wallet,
-                plan_purchase_date: data.plan_purchase_date,
-                plan_active: data.plan_active
+                channel_verified: data.channel_verified
             }));
         }
 
@@ -745,7 +690,7 @@ async def mini_app():
                 const overlay = document.getElementById('verify-overlay');
                 if (cachedData) {
                     document.getElementById('balance').textContent = cachedData.points.toFixed(2);
-                    document.getElementById('ad-limit').textContent = cachedData.total_daily_ads_watched + '/10';
+                    document.getElementById('ad-limit').textContent = cachedData.total_daily_ads_watched + '/28';
                     document.getElementById('invited-count').textContent = cachedData.invited_friends;
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
                     if (cachedData.channel_verified) {
@@ -758,7 +703,7 @@ async def mini_app():
                 } else {
                     // Show default state for first-time users
                     document.getElementById('balance').textContent = '0.00';
-                    document.getElementById('ad-limit').textContent = '0/10';
+                    document.getElementById('ad-limit').textContent = '0/28';
                     document.getElementById('invited-count').textContent = '0';
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
                     overlay.style.display = 'flex';
@@ -774,7 +719,7 @@ async def mini_app():
                 // Update UI with fresh data
                 document.getElementById('balance').textContent = data.points.toFixed(2);
                 document.getElementById('balance').classList.remove('loading');
-                document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/10';
+                document.getElementById('ad-limit').textContent = data.total_daily_ads_watched + '/28';
                 document.getElementById('ad-limit').classList.remove('loading');
                 document.getElementById('invited-count').textContent = data.invited_friends;
                 document.getElementById('invited-count').classList.remove('loading');
@@ -790,12 +735,11 @@ async def mini_app():
 
                 // Cache the fresh data
                 setCachedUserData(data);
-                updateWalletUI();
             } catch (error) {
                 // If API fails, keep cached data or show default
                 if (!getCachedUserData()) {
                     document.getElementById('balance').textContent = '0.00';
-                    document.getElementById('ad-limit').textContent = '0/10';
+                    document.getElementById('ad-limit').textContent = '0/28';
                     document.getElementById('invited-count').textContent = '0';
                     document.getElementById('balance').classList.remove('loading');
                     document.getElementById('ad-limit').classList.remove('loading');
@@ -828,86 +772,6 @@ async def mini_app():
             }
         }
 
-        async function updateWalletUI() {
-            const section = document.getElementById('wallet-connect-section');
-            section.innerHTML = '';
-            try {
-                const response = await fetch('/api/user/' + userId);
-                const data = await response.json();
-                const connected = data.connected_wallet;
-                const planActive = data.plan_active;
-                const purchaseDate = data.plan_purchase_date;
-
-                if (planActive) {
-                    const expiry = new Date(purchaseDate);
-                    expiry.setDate(expiry.getDate() + 7);
-                    section.innerHTML = `
-                        <div class="small-card">Plan Purchased, Valid until ${expiry.toDateString()}</div>
-                        <button disabled class="btn-primary">Purchased</button>
-                    `;
-                } else {
-                    if (connected) {
-                        section.innerHTML = `
-                            <div>Connected: <span>${connected.substring(0,6)}...${connected.substring(connected.length-6)}</span> <button id="disconnect">Disconnect</button></div>
-                            <button id="purchase-plan" class="btn-primary">Purchase Plan (10 USDT)</button>
-                        `;
-                        document.getElementById('disconnect').addEventListener('click', () => tonConnectUI.disconnect());
-                        document.getElementById('purchase-plan').addEventListener('click', purchasePlan);
-                    } else {
-                        section.innerHTML = `
-                            <button id="connect-wallet" class="btn-primary">Connect Wallet</button>
-                        `;
-                        document.getElementById('connect-wallet').addEventListener('click', () => tonConnectUI.connectWallet());
-                    }
-                }
-            } catch (error) {
-                tg.showAlert('Failed to load wallet status');
-            }
-        }
-
-        async function purchasePlan() {
-            try {
-                const { TonClient, Address, beginCell } = TonCore;
-                const client = new TonClient({
-                    endpoint: 'https://toncenter.com/api/v2/jsonRPC',
-                });
-
-                const userAddress = tonConnectUI.wallet.account.address;
-                const master = Address.parse(USDT_CONTRACT);
-                const walletCell = beginCell().storeAddress(Address.parse(userAddress)).endCell();
-                const response = await client.runMethod(master, 'get_wallet_address', [{ type: 'slice', cell: walletCell }]);
-                const userJettonWallet = response.stack.readAddress();
-
-                const payload = beginCell()
-                    .storeUint(0xf8a7ea5, 32)
-                    .storeUint(0, 64)
-                    .storeCoins(10000000)
-                    .storeAddress(Address.parse(OWNER_WALLET))
-                    .storeAddress(Address.parse(userAddress))
-                    .storeBit(0)
-                    .storeCoins(0)
-                    .storeBit(0)
-                    .endCell()
-                    .toB64();
-
-                const tx = await tonConnectUI.sendTransaction({
-                    validUntil: Math.floor(Date.now() / 1000) + 360,
-                    messages: [{
-                        address: userJettonWallet.toString(),
-                        amount: '50000000',
-                        payload: payload
-                    }]
-                });
-
-                await fetch(`/api/purchase_plan/${userId}`, { method: 'POST' });
-                tg.showAlert('Plan purchased successfully!');
-                updateWalletUI();
-                loadData();
-            } catch (e) {
-                tg.showAlert(`Transaction failed: ${e.message}`);
-            }
-        }
-
         async function watchAd() {
             const watchBtn = document.getElementById('ad-btn');
             watchBtn.disabled = true;
@@ -916,59 +780,39 @@ async def mini_app():
                 const userResponse = await fetch('/api/user/' + userId);
                 const userData = await userResponse.json();
 
-                if (!userData.plan_active) {
-                    tg.showAlert('Please purchase plan first!');
-                    watchBtn.disabled = false;
-                    watchBtn.textContent = 'Watch Ad';
-                    return;
-                }
-
-                if (userData.daily_ads_watched >= 10) {
+                let zone;
+                if (userData.monetag_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE;
+                } else if (userData.monetag_zone1_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE1;
+                } else if (userData.monetag_zone2_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE2;
+                } else if (userData.monetag_zone3_daily_ads_watched < 7) {
+                    zone = MONETAG_ZONE3;
+                } else {
                     tg.showAlert('Daily ad limit reached!');
                     await loadData();
-                    watchBtn.disabled = false;
-                    watchBtn.textContent = 'Watch Ad';
                     return;
                 }
 
-                adStartTime = Date.now();
-                adCompleted = false;
-
-                // Start a timer to check ad completion
-                setTimeout(() => {
-                    adCompleted = true;
-                }, 17000); // 17 seconds
-
-                await window[`show_${MONETAG_ZONE}`]();
-
-                // Check if ad was watched for at least 17 seconds
-                const response = await fetch('/api/watch_ad/' + userId, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ad_completed: adCompleted })
-                });
+                await window[`show_${zone}`]();
+                const response = await fetch('/api/watch_ad/' + userId, { method: 'POST' });
                 const data = await response.json();
                 if (data.success) {
-                    tg.showAlert('Ad watched! +0.1 USDT');
+                    tg.showAlert('Ad watched! +0.5 RS');
                 } else if (data.limit_reached) {
                     tg.showAlert('Daily ad limit reached!');
                 } else if (data.message === 'Channel membership not verified') {
                     tg.showAlert('Please verify channel membership first!');
                     setCachedVerificationStatus(false);
                     document.getElementById('verify-overlay').style.display = 'flex';
-                } else if (data.message === 'Please purchase plan first') {
-                    tg.showAlert('Please purchase plan first!');
-                } else if (data.message === 'Ad not completely watched or not opened ad website') {
-                    tg.showAlert('Ad not completely watched or not opened ad website');
                 } else {
                     tg.showAlert('Error watching ad');
                 }
                 await loadData();
             } catch (error) {
-                tg.showAlert('Ad failed to load. Please turn off ad blocker or VPN');
+                tg.showAlert('Ad failed to load. please turn off ad blocker or vpn');
             } finally {
-                adStartTime = null;
-                adCompleted = false;
                 watchBtn.disabled = false;
                 watchBtn.textContent = 'Watch Ad';
             }
@@ -986,21 +830,21 @@ async def mini_app():
 
         async function withdraw() {
             const amount = parseFloat(document.getElementById('amount').value);
-            const withdraw_wallet = document.getElementById('withdraw-wallet').value;
-            if (amount < 1 || !withdraw_wallet) {
-                tg.showAlert('Minimum 1 USDT and Wallet address required!');
+            const easypaisaJazzcash = document.getElementById('easypaisa-jazzcash').value;
+            if (amount < 150 || !easypaisaJazzcash) {
+                tg.showAlert('Minimum 150 RS and Easypaisa/Jazzcash number required!');
                 return;
             }
             const response = await fetch('/api/withdraw/' + userId, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({amount, withdraw_wallet})
+                body: JSON.stringify({amount, easypaisa_jazzcash: easypaisaJazzcash})
             });
             const data = await response.json();
             if (data.success) {
                 tg.showAlert('Withdraw successful! Credited within 24 hours.');
                 document.getElementById('amount').value = '';
-                document.getElementById('withdraw-wallet').value = '';
+                document.getElementById('easypaisa-jazzcash').value = '';
                 await loadData();
             } else {
                 tg.showAlert(data.message || 'Withdraw failed');
@@ -1016,28 +860,16 @@ async def mini_app():
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelector(`.nav-btn[data-page="${page}"]`).classList.add('active');
-            if (page === 'withdraw') {
-                updateWalletUI();
-            }
-
-            // Check if ad was not watched for 17 seconds
-            if (adStartTime && !adCompleted && page === 'tasks') {
-                const timeElapsed = (Date.now() - adStartTime) / 1000;
-                if (timeElapsed < 17) {
-                    adCompleted = false;
-                }
-            }
         }
 
         document.getElementById('verify-btn').addEventListener('click', verifyChannel);
         document.getElementById('ad-btn').addEventListener('click', watchAd);
-        document.getElementById('upgrade-plan').addEventListener('click', () => showPage('withdraw'));
         loadData();
     </script>
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{OWNER_WALLET}", OWNER_WALLET).replace("{USDT_CONTRACT}", USDT_CONTRACT))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{MONETAG_ZONE1}", MONETAG_ZONE1).replace("{MONETAG_ZONE2}", MONETAG_ZONE2).replace("{MONETAG_ZONE3}", MONETAG_ZONE3).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK))
 
 # Telegram webhook
 @app.post("/telegram/webhook")
@@ -1074,9 +906,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_new and invited_by and invited_by != update.effective_user.id:
         await add_invited_friend(invited_by)
-        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.1 USDT for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Wallet 🚀 Open Mini App , and start your earning!"
+        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Easypaisa/Jazzcash 🚀 Open Mini App , and start your earning!"
     else:
-        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.1 USDT for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Wallet 🚀 Open Mini App, and start your earning!"
+        welcome_text = "🎉 Welcome to Click to Earn! 🎉 💰 Start earning instantly – get 0.5 RS for every ad you watch! 👥 Invite friends and enjoy 7% referral bonus on their earnings. ✅ Instant withdraw ✅ Easypaisa/Jazzcash 🚀 Open Mini App, and start your earning!"
     
     keyboard = [[InlineKeyboardButton("Open Mini App", web_app=WebAppInfo(url=f"{BASE_URL}/app"))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
