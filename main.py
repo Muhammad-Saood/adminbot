@@ -614,14 +614,6 @@ async def mini_app():
     </style>
 </head>
 <body>
-    <div id="verify-overlay" class="verify-overlay">
-        <div class="verify-box">
-            <h2>📢 Join Announcements 📢</h2>
-            <p>Join Click to Earn Official Announcements Channel and verify your account to start earning!</p>
-            <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
-            <button id="verify-btn" class="btn-primary">Verify</button>
-        </div>
-    </div>
     <div id="tasks" class="page active">
         <div class="header">
             <div class="user-info">
