@@ -313,7 +313,7 @@ async def mini_app():
     <title>DOGS Earn App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="//libtl.com/sdk.js" data-zone="{MONETAG_ZONE}" data-sdk="show_{MONETAG_ZONE}"></script>
-    <script src="https://unpkg.com/@ton/ton@13/dist/ton.min.js"></script>
+    <script src="https://unpkg.com/@ton/ton@13/dist/index.js"></script>
     <script src="https://unpkg.com/tonconnect-ui@latest/dist/tonconnect-ui.min.js"></script>
     <style>
         * {
@@ -614,6 +614,14 @@ async def mini_app():
     </style>
 </head>
 <body>
+    <div id="verify-overlay" class="verify-overlay">
+        <div class="verify-box">
+            <h2>📢 Join Announcements 📢</h2>
+            <p>Join Click to Earn Official Announcements Channel and verify your account to start earning!</p>
+            <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
+            <button id="verify-btn" class="btn-primary">Verify</button>
+        </div>
+    </div>
     <div id="tasks" class="page active">
         <div class="header">
             <div class="user-info">
@@ -859,7 +867,7 @@ async def mini_app():
 
         async function purchasePlan() {
             try {
-                const { TonClient, Address, beginCell } = TonCore;
+                const { TonClient, Address, beginCell } = ton;
                 const client = new TonClient({
                     endpoint: 'https://toncenter.com/api/v2/jsonRPC',
                 });
