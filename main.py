@@ -23,8 +23,6 @@ BOT_USERNAME = "clicktoearn5_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
-PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@ClicktoEarnAnnouncements")
-PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
 MONETAG_ZONE = "9859391"
 USERS_FILE = "/tmp/users.json"
 OWNER_WALLET = os.getenv("OWNER_WALLET", "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c")  # Replace with actual owner wallet
@@ -96,7 +94,6 @@ async def get_or_create_user(user_id: int, invited_by: Optional[int] = None) -> 
             "withdraw_wallet": None,
             "invited_by": invited_by,
             "created_at": dt.datetime.now().isoformat(),
-            "channel_verified": False,
             "last_ad_start_time": None,
             "connected_wallet": None,
             "plan_purchase_date": None
@@ -159,28 +156,6 @@ async def withdraw_points(user_id: int, amount: float, withdraw_wallet: str) -> 
         return True
     return False
 
-async def verify_channel_membership(user_id: int) -> bool:
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
-                json={"chat_id": PUBLIC_CHANNEL_USERNAME, "user_id": user_id}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get("ok") and data.get("result").get("status") in ["member", "administrator", "creator"]:
-                        users = await read_json()
-                        user_id_str = str(user_id)
-                        if user_id_str in users:
-                            users[user_id_str]["channel_verified"] = True
-                            await write_json(users)
-                        return True
-                    return False
-                return False
-    except Exception as e:
-        logger.error(f"Error verifying channel membership for {user_id}: {e}")
-        return False
-
 def is_plan_active(user: dict) -> bool:
     if not user.get("plan_purchase_date"):
         return False
@@ -196,7 +171,6 @@ async def get_user(user_id: int):
         "total_daily_ads_watched": user["daily_ads_watched"],
         "daily_ads_watched": user["daily_ads_watched"],
         "invited_friends": user["invited_friends"],
-        "channel_verified": user["channel_verified"],
         "connected_wallet": user["connected_wallet"],
         "plan_purchase_date": user["plan_purchase_date"],
         "plan_active": is_plan_active(user)
@@ -205,8 +179,6 @@ async def get_user(user_id: int):
 @app.post("/api/watch_ad/{user_id}")
 async def watch_ad(user_id: int, request: Request):
     user = await get_user_data(user_id)
-    if not user["channel_verified"]:
-        return {"success": False, "message": "Channel membership not verified"}
     if not is_plan_active(user):
         return {"success": False, "message": "Please purchase plan first"}
 
@@ -250,12 +222,6 @@ async def withdraw(user_id: int, request: Request):
     if await withdraw_points(user_id, amount, withdraw_wallet):
         return {"success": True}
     return {"success": False, "message": "Insufficient balance"}
-
-@app.post("/api/verify_channel/{user_id}")
-async def verify_channel(user_id: int):
-    if await verify_channel_membership(user_id):
-        return {"success": True, "message": "Channel membership verified"}
-    return {"success": False, "message": "You must join the channel first"}
 
 @app.post("/api/set_wallet/{user_id}")
 async def set_wallet(user_id: int, request: Request):
@@ -473,21 +439,6 @@ async def mini_app():
             margin-bottom: 1rem;
         }
 
-        .join-btn {
-            background: #0284c7;
-            color: white;
-            padding: 0.75rem 1.5rem;
-            border: none;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: bold;
-            width: 100%;
-            text-decoration: none;
-            display: inline-block;
-            margin-bottom: 1rem;
-        }
-
         .copy-btn {
             background: #6b7280;
             color: white;
@@ -528,49 +479,6 @@ async def mini_app():
             color: #888;
         }
 
-        .verify-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.85);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .verify-box {
-            background: white;
-            padding: 1rem;
-            border-radius: 1rem;
-            text-align: center;
-            max-width: 320px;
-            width: 100%;
-            margin: 0 1rem;
-            color: black;
-        }
-
-        .verify-box h2 {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 0.75rem;
-        }
-
-        .verify-box p {
-            font-size: 0.875rem;
-            margin-bottom: 1rem;
-        }
-
-        .verified-btn {
-            background: #d1d5db;
-            color: #6b7280;
-            cursor: not-allowed;
-            opacity: 0.7;
-            pointer-events: none;
-        }
-
         .break-all {
             word-break: break-all;
         }
@@ -596,7 +504,7 @@ async def mini_app():
                 min-height: 30vh;
                 margin-bottom: 0.75rem;
             }
-            .watch-btn, .btn-primary, .join-btn, .copy-btn, .withdraw-btn, .input {
+            .watch-btn, .btn-primary, .copy-btn, .withdraw-btn, .input {
                 margin-bottom: 0.75rem;
             }
             .nav-btn {
@@ -606,22 +514,10 @@ async def mini_app():
                 width: 20px;
                 height: 20px;
             }
-            .verify-box {
-                max-width: 280px;
-                padding: 0.75rem;
-            }
         }
     </style>
 </head>
 <body>
-    <div id="verify-overlay" class="verify-overlay">
-        <div class="verify-box">
-            <h2>📢 Join Announcements 📢</h2>
-            <p>Join Click to Earn Official Announcements Channel and verify your account to start earning!</p>
-            <a href="{PUBLIC_CHANNEL_LINK}" class="join-btn" target="_blank">Join Channel</a>
-            <button id="verify-btn" class="btn-primary">Verify</button>
-        </div>
-    </div>
     <div id="tasks" class="page active">
         <div class="header">
             <div class="user-info">
@@ -712,14 +608,6 @@ async def mini_app():
             }
         });
 
-        function getCachedVerificationStatus() {
-            return localStorage.getItem(`channel_verified_${userId}`) === 'true';
-        }
-
-        function setCachedVerificationStatus(status) {
-            localStorage.setItem(`channel_verified_${userId}`, status);
-        }
-
         function getCachedUserData() {
             const cachedData = localStorage.getItem(`user_data_${userId}`);
             return cachedData ? JSON.parse(cachedData) : null;
@@ -731,7 +619,6 @@ async def mini_app():
                 total_daily_ads_watched: data.total_daily_ads_watched,
                 daily_ads_watched: data.daily_ads_watched,
                 invited_friends: data.invited_friends,
-                channel_verified: data.channel_verified,
                 connected_wallet: data.connected_wallet,
                 plan_purchase_date: data.plan_purchase_date,
                 plan_active: data.plan_active
@@ -742,26 +629,17 @@ async def mini_app():
             try {
                 // Load cached data immediately
                 const cachedData = getCachedUserData();
-                const overlay = document.getElementById('verify-overlay');
                 if (cachedData) {
                     document.getElementById('balance').textContent = cachedData.points.toFixed(2);
                     document.getElementById('ad-limit').textContent = cachedData.total_daily_ads_watched + '/10';
                     document.getElementById('invited-count').textContent = cachedData.invited_friends;
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
-                    if (cachedData.channel_verified) {
-                        setCachedVerificationStatus(true);
-                        overlay.style.display = 'none';
-                    } else {
-                        setCachedVerificationStatus(false);
-                        overlay.style.display = 'flex';
-                    }
                 } else {
                     // Show default state for first-time users
                     document.getElementById('balance').textContent = '0.00';
                     document.getElementById('ad-limit').textContent = '0/10';
                     document.getElementById('invited-count').textContent = '0';
                     document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
-                    overlay.style.display = 'flex';
                     // Add loading indicators
                     document.getElementById('balance').classList.add('loading');
                     document.getElementById('ad-limit').classList.add('loading');
@@ -780,14 +658,6 @@ async def mini_app():
                 document.getElementById('invited-count').classList.remove('loading');
                 document.getElementById('invite-link').textContent = 'https://t.me/{BOT_USERNAME}?start=ref' + userId;
 
-                if (data.channel_verified) {
-                    setCachedVerificationStatus(true);
-                    overlay.style.display = 'none';
-                } else {
-                    setCachedVerificationStatus(false);
-                    overlay.style.display = 'flex';
-                }
-
                 // Cache the fresh data
                 setCachedUserData(data);
                 updateWalletUI();
@@ -802,29 +672,6 @@ async def mini_app():
                     document.getElementById('invited-count').classList.remove('loading');
                 }
                 tg.showAlert('Failed to load data');
-            }
-        }
-
-        async function verifyChannel() {
-            const verifyBtn = document.getElementById('verify-btn');
-            verifyBtn.disabled = true;
-            try {
-                const response = await fetch('/api/verify_channel/' + userId, { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    verifyBtn.textContent = 'Verified';
-                    verifyBtn.classList.add('verified-btn');
-                    document.getElementById('verify-overlay').style.display = 'none';
-                    setCachedVerificationStatus(true);
-                    tg.showAlert('Channel membership verified!');
-                    await loadData();
-                } else {
-                    tg.showAlert('Please join the channel first!');
-                }
-            } catch (error) {
-                tg.showAlert('Failed to verify channel membership');
-            } finally {
-                verifyBtn.disabled = false;
             }
         }
 
@@ -952,10 +799,6 @@ async def mini_app():
                     tg.showAlert('Ad watched! +0.1 USDT');
                 } else if (data.limit_reached) {
                     tg.showAlert('Daily ad limit reached!');
-                } else if (data.message === 'Channel membership not verified') {
-                    tg.showAlert('Please verify channel membership first!');
-                    setCachedVerificationStatus(false);
-                    document.getElementById('verify-overlay').style.display = 'flex';
                 } else if (data.message === 'Please purchase plan first') {
                     tg.showAlert('Please purchase plan first!');
                 } else if (data.message === 'Ad not completely watched or not opened ad website') {
@@ -1008,10 +851,6 @@ async def mini_app():
         }
 
         function showPage(page) {
-            const overlay = document.getElementById('verify-overlay');
-            if (overlay && overlay.style.display === 'flex') {
-                return;
-            }
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById(page).classList.add('active');
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -1029,7 +868,6 @@ async def mini_app():
             }
         }
 
-        document.getElementById('verify-btn').addEventListener('click', verifyChannel);
         document.getElementById('ad-btn').addEventListener('click', watchAd);
         document.getElementById('upgrade-plan').addEventListener('click', () => showPage('withdraw'));
         loadData();
@@ -1037,7 +875,7 @@ async def mini_app():
 </body>
 </html>
 """
-    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{PUBLIC_CHANNEL_LINK}", PUBLIC_CHANNEL_LINK).replace("{OWNER_WALLET}", OWNER_WALLET).replace("{USDT_CONTRACT}", USDT_CONTRACT))
+    return HTMLResponse(html_content.replace("{MONETAG_ZONE}", MONETAG_ZONE).replace("{BOT_USERNAME}", BOT_USERNAME).replace("{OWNER_WALLET}", OWNER_WALLET).replace("{USDT_CONTRACT}", USDT_CONTRACT))
 
 # Telegram webhook
 @app.post("/telegram/webhook")
