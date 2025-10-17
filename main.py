@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Config
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7748337330:AAEx_kr1t3hT8zrBf0LM2HwOgA6X4k1Llpo")
 BOT_USERNAME = "clicktoearn5_bot"
 PORT = int(os.getenv("PORT", "8000"))
 BASE_URL = os.getenv("BASE_URL")
