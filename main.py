@@ -18,10 +18,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Config
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7748337330:AAEx_kr1t3hT8zrBf0LM2HwOgA6X4k1Llpo")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = "clicktoearn5_bot"
 PORT = int(os.getenv("PORT", "8000"))
-BASE_URL = os.getenv("BASE_URL", "https://adminnbot.netlify.app")
+BASE_URL = os.getenv("BASE_URL")
 ADMIN_CHANNEL_ID = os.getenv("ADMIN_CHANNEL_ID", "-1003095776330")
 PUBLIC_CHANNEL_USERNAME = os.getenv("PUBLIC_CHANNEL_USERNAME", "@ClicktoEarnAnnouncements")
 PUBLIC_CHANNEL_LINK = f"https://t.me/{PUBLIC_CHANNEL_USERNAME.replace('@', '')}"
